@@ -636,7 +636,7 @@ export async function splitByLLM(
 
   // 构建 Prompt
   const systemPrompt = buildSplitPrompt({ maxWordCountEnglish });
-  const userPrompt = `Please use multiple <br> tags to separate the following sentence. Make sure to preserve all spaces and punctuation exactly as they appear in the original text:\n${text}`;
+  const userPrompt = text;
 
   // 记录开始时间
   const startTime = Date.now();

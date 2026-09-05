@@ -248,7 +248,7 @@ describe('mergeSegmentsWithinBatch', () => {
       config
     );
 
-    expect(capturedUserPrompt).toContain("\nHi, I'm Emily.");
+    expect(capturedUserPrompt).toBe("Hi, I'm Emily.");
     expect(capturedUserPrompt).not.toContain("Hi , I'm Emily .");
     expect(result.getSegments()[0].text).toBe("Hi, I'm Emily.");
   });

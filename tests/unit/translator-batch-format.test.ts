@@ -66,8 +66,8 @@ describe('Translator batch output format fallback', () => {
     expect(calls[0]?.options?.responseFormat?.type).toBe('json_schema');
     expect(calls[1]?.options?.responseFormat?.type).toBe('json_object');
     expect(calls[2]?.options?.responseFormat?.type).toBe('json_object');
-    expect(calls[1]?.systemPrompt).toContain('Return a single JSON object');
-    expect(calls[2]?.systemPrompt).toContain('Return a single JSON object');
+    expect(calls[1]?.systemPrompt).toContain('Return only a JSON object mapping input keys to translated strings.');
+    expect(calls[2]?.systemPrompt).toContain('Return only a JSON object mapping input keys to translated strings.');
   });
 
   it('普通内容解析失败时只重试相同格式，不降级为其他输出格式', async () => {
