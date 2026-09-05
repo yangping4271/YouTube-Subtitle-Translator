@@ -236,6 +236,10 @@ class PopupController {
         // 初始化API设置
         await this.loadApiConfig();
         this.initApiSettingsUI();
+        if (this.hasApiPermissionDraft) {
+            this.switchTab('api');
+            this.showApiStatus('success', '已恢复上次填写的信息，请点击保存');
+        }
 
         this.getCurrentVideoInfo();
         this.checkTranslationProgress();
@@ -777,12 +781,17 @@ class PopupController {
 
     async loadApiConfig() {
         try {
-            const result = await chrome.storage.local.get(['apiConfig']);
+            const result = await chrome.storage.local.get(['apiConfig', 'apiPermissionDraft']);
             const migration = window.SubtitleConfig.migrateApiConfig(result.apiConfig || {});
             this.apiConfig = migration.config;
 
             if (migration.changed) {
                 await chrome.storage.local.set({ apiConfig: this.apiConfig });
+            }
+            if (result.apiPermissionDraft) {
+                this.apiConfig = window.SubtitleConfig.normalizeApiConfig(result.apiPermissionDraft.apiConfig);
+                this.newApiProviderDraft = result.apiPermissionDraft.newApiProviderDraft;
+                this.hasApiPermissionDraft = true;
             }
         } catch {}
     }
@@ -797,6 +806,8 @@ class PopupController {
         try {
             this.syncActiveProviderFields();
             await this.persistApiConfig();
+            await chrome.storage.local.remove('apiPermissionDraft');
+            this.hasApiPermissionDraft = false;
             Toast.success('API配置已保存');
         } catch (error) {
             Toast.error('保存失败: ' + error.message);
@@ -1042,7 +1053,7 @@ class PopupController {
         }
 
         try {
-            await this.requestApiHostPermission(provider);
+            await this.requestApiHostPermission(provider, true);
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             Toast.error(`API 权限未授予: ${message}`);
@@ -1062,7 +1073,7 @@ class PopupController {
     }
 
     async testApiConnection() {
-        this.showApiStatus('loading', '测试连接中...');
+        this.showApiStatus('loading', '正在验证模型调用...');
         const provider = this.collectActiveProviderFromUI();
 
         if (!provider) {
@@ -1070,38 +1081,23 @@ class PopupController {
             return;
         }
 
+        if (!provider.llmModel) {
+            this.showApiStatus('error', '请填写翻译模型');
+            return;
+        }
+
         try {
-            await this.requestApiHostPermission(provider);
+            await this.requestApiHostPermission(provider, true);
 
             // 测试现有供应商时同步最新配置
             if (!this.newApiProviderDraft) {
                 await this.persistApiConfig();
             }
 
-            const headers = {
-                'Content-Type': 'application/json'
-            };
-            if (provider.openaiApiKey) {
-                headers.Authorization = `Bearer ${provider.openaiApiKey}`;
-            }
-
-            const requestBaseUrl = window.SubtitleConfig.normalizeApiBaseUrl(
-                provider.openaiBaseUrl,
-                provider.providerType
-            );
-            const response = await fetch(`${requestBaseUrl}/models`, {
-                method: 'GET',
-                headers
-            });
-
-            if (response.ok) {
-                this.showApiStatus('success', 'API连接成功');
-            } else {
-                const errorMessage = await window.SubtitleConfig.formatApiResponseError(response);
-                this.showApiStatus('error', `连接失败: ${errorMessage}`);
-            }
+            await window.SubtitleConfig.testApiProvider(provider);
+            this.showApiStatus('success', '模型调用成功');
         } catch (error) {
-            this.showApiStatus('error', `网络错误: ${error.message}`);
+            this.showApiStatus('error', `模型调用失败: ${error.message}`);
         }
     }
 
@@ -1118,7 +1114,7 @@ class PopupController {
         }
     }
 
-    requestApiHostPermission(providerOrBaseUrl) {
+    async requestApiHostPermission(providerOrBaseUrl, preserveDraft = false) {
         if (
             typeof providerOrBaseUrl === 'object' &&
             this.isDefaultApiProvider(providerOrBaseUrl)
@@ -1133,6 +1129,18 @@ class PopupController {
 
         if (!chrome.permissions || typeof chrome.permissions.request !== 'function') {
             return Promise.reject(new Error('当前扩展不支持动态 API 权限，请重新加载扩展'));
+        }
+
+        // 授权窗口可能关闭 popup；先保存编辑快照，不能依赖授权回调继续保存。
+        // 草稿与已生效配置分开，测试连接或拒绝授权都不会切换当前供应商。
+        if (preserveDraft) {
+            await chrome.storage.local.set({
+                apiPermissionDraft: {
+                    apiConfig: this.apiConfig,
+                    newApiProviderDraft: this.newApiProviderDraft,
+                }
+            });
+            this.hasApiPermissionDraft = true;
         }
 
         return new Promise((resolve, reject) => {

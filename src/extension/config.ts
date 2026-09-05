@@ -8,6 +8,7 @@ import type {
   SubtitleConfig,
   LanguageOption,
   ApiConfig,
+  ApiProviderConfig,
   TranslatorConfig,
 } from '../types';
 import { DEFAULT_CONCURRENCY } from '../utils/concurrency.js';
@@ -22,6 +23,7 @@ import {
   migrateApiConfig,
   normalizeApiConfig,
 } from '../utils/api-config.js';
+import { OpenAIClient } from '../services/openai-client.js';
 import { popupConfigBridge } from './config-bridge.js';
 import type { PopupConfigBridge } from './config-bridge.js';
 
@@ -226,6 +228,24 @@ export function validateConfig(config: TranslatorConfig): string[] {
   return errors;
 }
 
+/** 用与翻译相同的客户端验证当前供应商和模型，不能仅探测模型列表。 */
+export async function testApiProvider(provider: ApiProviderConfig): Promise<void> {
+  if (!provider.llmModel.trim()) throw new Error('请填写翻译模型');
+  const config = buildTranslatorConfig({
+    schemaVersion: API_CONFIG_SCHEMA_VERSION,
+    activeProviderId: provider.id,
+    providers: [provider],
+  });
+  const reply = await new OpenAIClient(config).callChat(
+    'Reply only with OK.',
+    'Connection test.',
+    { timeout: 15000 }
+  );
+  if (typeof reply !== 'string' || !reply.trim()) {
+    throw new Error('API 未返回有效的模型回复');
+  }
+}
+
 // 浏览器环境：挂载到全局
 declare global {
   interface Window {
@@ -242,6 +262,7 @@ declare global {
       migrateApiConfig: typeof migrateApiConfig;
       getApiHostPermissionPattern: PopupConfigBridge['getApiHostPermissionPattern'];
       formatApiResponseError: PopupConfigBridge['formatApiResponseError'];
+      testApiProvider: typeof testApiProvider;
       SUPPORTED_LANGUAGES: typeof SUPPORTED_LANGUAGES;
     };
   }
@@ -255,6 +276,7 @@ if (typeof window !== 'undefined') {
     DEFAULT_API_CONFIG,
     isDefaultApiProviderId,
     ...popupConfigBridge,
+    testApiProvider,
     getModelConcurrencyLimit,
     normalizeApiConfig,
     migrateApiConfig,
