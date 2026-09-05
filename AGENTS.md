@@ -9,12 +9,10 @@
 - `public/extension/`：manifest、popup、样式和图标等静态文件。
 - `tests/`：Vitest 单元测试与离线集成测试。
 - `dist/extension/`：可重建的扩展产物，也是 Chrome MCP 加载的目录。
-- `CONTEXT.md`：项目领域术语来源，重构和命名时必须保留并遵守。
 - `PRIVACY.md`：Chrome Web Store 隐私政策源文件，不要作为普通冗余文档删除。
+- `docs/assets/`：Chrome Web Store 商店素材。
 - `.mcp.json`：本项目的 Chrome DevTools MCP server 配置。
 - `.agents/skills/reuse-chrome-devtools/SKILL.md`：本项目专用的真实 Chrome 测试 Skill。涉及浏览器或扩展行为时必须先读取并遵守；不要复制到全局 Skill 目录。
-
-进一步约定按需读取 `docs/agents/`，不要把这些内容重复复制到本文件。
 
 ## 开发原则
 
@@ -23,6 +21,8 @@
 - popup 通过 `config.js` 使用统一配置，不要复制配置规范化、API URL 或并发限制逻辑。
 - 不要重新引入无效的全局 bundle 名、重复 content script 或仅供控制台调用的调试接口。
 - 静态页面不要依赖远程字体或其他非必要远程资源。
+- 配置使用 `chrome.storage.local`，不依赖 `.env`；使用命名导出、`import type` 和 `unknown`，错误处理复用 `utils/error-handler.ts`。
+- GitHub 操作优先使用 `gh`。
 - 修改已有文件时保留用户未提交的无关改动。
 
 ## 不能破坏的行为
@@ -51,23 +51,11 @@ bun run test:subtitle-fixture
 - 真实浏览器端到端验证使用 Chrome DevTools MCP，不保留依赖本地密钥的手工 E2E 脚本或测试页面。
 - 可选信息缺失、兼容性降级、重试中间态和成功兜底不得输出 `warn`/`error`；只有导致当前操作或翻译任务最终失败的错误才使用错误日志和用户提示。
 
-## Chrome MCP 回归
+## Chrome MCP 验证
 
-`.mcp.json` 提供本项目的 `chrome-devtools` server。涉及 popup、manifest、Chrome 消息、Service Worker 或 YouTube DOM 的改动时，先读取项目内 `reuse-chrome-devtools` Skill。真实浏览器属于用户正在使用的环境；当前对话首次连接 Chrome MCP 前必须说明用途并取得一次明确同意。获批后建立并复用单一持久连接，同一对话和既定范围内的后续检查、reload 与回归不重复申请；仅新对话或明显扩展到无关页面、数据或动作时再次确认。未获同意时只完成本地检查，并在交付中注明“未执行真实浏览器回归”，不要调用 Chrome MCP。
-
-用户同意后，按以下步骤回归：
-
-1. 运行 `bun run build:prod`。
-2. 通过 MCP 安装或 reload 绝对路径下的 `dist/extension/`。
-3. 打开真实 YouTube watch 页面并 reload，使最新 content script 生效。
-4. 检查下载和复制按钮各只有一个：
-   - `#transcript-download-button`
-   - `#transcript-copy-button`
-5. 检查 `#youtube-local-subtitle-overlay`、当前视频识别和已有翻译状态。
-6. 打开 popup 的字幕、API、样式三个 tab，检查内置供应商锁定、自定义供应商可编辑及浅色/深色主题。
-7. 检查 popup 和本扩展 Service Worker 的 console。区分扩展错误与 YouTube 页面自身 warning。
-
-MCP 回归应基于刚生成的 production build；不要用旧 zip 或旧 `dist` 推断结果。
+- 遵守项目内 `reuse-chrome-devtools` Skill，具体连接和回归步骤以该文件为准。
+- 首次连接前说明用途并取得明确同意，同范围复用单一持久连接；完整回归须另获明确同意。
+- 使用刚生成的 `bun run build:prod` 产物；未获同意只做本地检查，交付注明“未执行真实浏览器回归”。
 
 ## 临时文件与清理
 
@@ -90,9 +78,3 @@ unzip -p <zip> manifest.json
 
 - 确认 zip 中没有 `*.map`，manifest 版本正确，权限符合预期且没有无效权限字符串。
 - 过去曾因使用开发构建而把 sourcemap 打入发布包，也曾出现无效权限字符串 `"permissions"`；这两项必须作为硬检查。
-
-## 项目协作
-
-- Issues 和 PRD 使用 GitHub Issues，见 `docs/agents/issue-tracker.md`。
-- Triage 使用五角色标签，见 `docs/agents/triage-labels.md`。
-- 领域文档采用根目录单一 `CONTEXT.md` 与 `docs/adr/` 布局，见 `docs/agents/domain.md`。
