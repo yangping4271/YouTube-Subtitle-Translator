@@ -24,7 +24,7 @@ beforeEach(async () => {
     overlayElement: {},
     isEnabled: true,
     englishSubtitles: [], chineseSubtitles: [],
-    updateSubtitle: vi.fn(), startSubtitleSyncLoop: vi.fn(),
+    setupResizeListener: vi.fn(), repositionSubtitle: vi.fn(), updateSubtitle: vi.fn(), startSubtitleSyncLoop: vi.fn(),
     stopSubtitleSyncLoop: vi.fn(), hideSubtitle: vi.fn(),
   });
 });
@@ -63,4 +63,105 @@ describe('字幕叠层', () => {
     expect(overlay.englishSubtitles).toEqual([first]);
     expect(overlay.chineseSubtitles).toEqual([second]);
   });
+});
+
+it('重复帧不写 DOM、不读取布局，重叠字幕和跳转保持倒序选择语义', async () => {
+  const { YouTubeSubtitleOverlay } = await import('../../src/extension/content.js');
+  const writes = vi.fn();
+  const element = () => {
+    let text = '';
+    return {
+      get textContent() { return text; },
+      set textContent(value: string) { writes(); text = value; },
+      style: new Proxy({} as Record<string, string>, { set(target, key: string, value) {
+        writes(); target[key] = value; return true;
+      } }),
+    };
+  };
+  const english = element();
+  const chinese = element();
+  const container = element();
+  const video = { currentTime: 1, getBoundingClientRect: vi.fn() };
+  const instance = Object.assign(Object.create(YouTubeSubtitleOverlay.prototype), {
+    currentVideo: video, overlayElement: container, englishElement: english,
+    chineseElement: chinese, isEnabled: true, isMiniPlayer: false,
+    englishSubtitles: [
+      { startTime: 0, endTime: 10, text: 'outer' },
+      { startTime: 2, endTime: 4, text: 'inner' },
+    ], chineseSubtitles: [],
+  });
+  instance.updateSubtitle();
+  expect(english.textContent).toBe('outer');
+  writes.mockClear();
+  instance.updateSubtitle();
+  expect(writes).not.toHaveBeenCalled();
+  expect(video.getBoundingClientRect).not.toHaveBeenCalled();
+  video.currentTime = 2;
+  instance.updateSubtitle();
+  expect(english.textContent).toBe('inner');
+  video.currentTime = 4;
+  instance.updateSubtitle();
+  expect(english.textContent).toBe('outer');
+  video.currentTime = 2;
+  instance.updateSubtitle();
+  expect(english.textContent).toBe('inner');
+  instance.isMiniPlayer = true;
+  instance.updateOverlayVisibility();
+  expect(container.style.display).toBe('none');
+  instance.updateSubtitle();
+  expect(container.style.display).toBe('none');
+  instance.isMiniPlayer = false;
+  instance.updateOverlayVisibility();
+  expect(container.style.display).toBe('block');
+  video.currentTime = 10;
+  instance.updateSubtitle();
+  expect(container.style.display).toBe('none');
+  writes.mockClear();
+  instance.updateSubtitle();
+  expect(writes).not.toHaveBeenCalled();
+});
+
+it('读取旧视频缓存时转换为中文字幕，后续双语结果完整替换旧内容', async () => {
+  const { YouTubeSubtitleOverlay } = await import('../../src/extension/content.js');
+  const legacy = [{ startTime: 0, endTime: 2, text: '旧字幕' }];
+  vi.stubGlobal('chrome', {
+    storage: { local: { get: async () => ({ subtitleEnabled: true }) } },
+    runtime: { sendMessage: async () => ({ status: { cachedResult: { subtitleData: legacy } } }) },
+  });
+  const instance = Object.assign(Object.create(YouTubeSubtitleOverlay.prototype), {
+    getVideoId: () => 'video', englishSubtitles: [], chineseSubtitles: [],
+    englishSettings: {}, chineseSettings: {}, overlayElement: {}, currentVideo: {},
+    repositionSubtitle: vi.fn(), applyLanguageStyles: vi.fn(), setupVideoListeners: vi.fn(), updateSubtitle: vi.fn(),
+  });
+  await instance.loadSubtitleData();
+  expect(instance.chineseSubtitles).toEqual(legacy);
+  expect(instance.isEnabled).toBe(true);
+  expect(instance.updateSubtitle).toHaveBeenCalled();
+  instance.loadBilingualSubtitles([{ startTime: 0, endTime: 2, text: 'new' }], []);
+  expect(instance.chineseSubtitles).toEqual([]);
+});
+
+
+it('缓存提前绑定播放器后，全屏事件仍能驱动布局更新', async () => {
+  vi.useFakeTimers();
+  try {
+    const { YouTubeSubtitleOverlay } = await import('../../src/extension/content.js');
+    const page = new EventTarget();
+    vi.stubGlobal('document', page);
+    vi.stubGlobal('window', new EventTarget());
+    vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} });
+    const reposition = vi.fn();
+    const instance = Object.assign(Object.create(YouTubeSubtitleOverlay.prototype), {
+      currentVideo: new EventTarget(), overlayElement: {}, isEnabled: true,
+      setupYouTubeStateListener: vi.fn(), repositionSubtitle: reposition,
+      stopSubtitleSyncLoop: vi.fn(), startSubtitleSyncLoop: vi.fn(), updateSubtitle: vi.fn(),
+    });
+    instance.setupVideoListeners();
+    instance.setupVideoListeners();
+    page.dispatchEvent(new Event('fullscreenchange'));
+    await vi.advanceTimersByTimeAsync(100);
+    expect(reposition).toHaveBeenCalledOnce();
+  } finally {
+    vi.useRealTimers();
+  }
 });

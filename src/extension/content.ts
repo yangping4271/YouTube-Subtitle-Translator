@@ -39,7 +39,6 @@ declare const chrome: {
 interface ChromeMessage {
   action: string;
   enabled?: boolean;
-  subtitleData?: SimpleSubtitleEntry[];
   englishSubtitles?: SimpleSubtitleEntry[];
   chineseSubtitles?: SimpleSubtitleEntry[];
   language?: 'english' | 'chinese';
@@ -50,15 +49,16 @@ interface ChromeMessage {
 }
 
 export class YouTubeSubtitleOverlay {
-  private subtitleData: SimpleSubtitleEntry[] = [];
   private englishSubtitles: SimpleSubtitleEntry[] = [];
   private chineseSubtitles: SimpleSubtitleEntry[] = [];
   private currentVideo: HTMLVideoElement | null = null;
   private overlayElement: HTMLElement | null = null;
+  private englishElement: HTMLElement | null = null;
+  private chineseElement: HTMLElement | null = null;
+  private isMiniPlayer = false;
   private isEnabled = false;
   private readonly translationRunGate = new TranslationRunGate();
 
-  private autoLoadEnabled = false;
   private currentVideoId: string | null = null;
 
   private englishSettings: SubtitleStyleSettings;
@@ -200,9 +200,6 @@ export class YouTubeSubtitleOverlay {
             this.updateLanguageSettings(request.language, request.settings);
           }
           break;
-        case 'toggleAutoLoad':
-          this.toggleAutoLoad(request.enabled || false);
-          break;
         case 'getVideoInfo': {
           const videoId = this.getVideoId();
           const subtitleLoaded =
@@ -211,7 +208,6 @@ export class YouTubeSubtitleOverlay {
           sendResponse({
             videoId,
             subtitleLoaded,
-            autoLoadEnabled: this.autoLoadEnabled,
             title: videoInfo.ytTitle,
             description: videoInfo.description,
             aiSummary: videoInfo.aiSummary,
@@ -229,7 +225,6 @@ export class YouTubeSubtitleOverlay {
             hasSubtitles,
             englishCount,
             chineseCount,
-            autoLoadEnabled: this.autoLoadEnabled,
             subtitleEnabled: this.isEnabled,
           });
           break;
@@ -243,10 +238,6 @@ export class YouTubeSubtitleOverlay {
               sendResponse({ success: false, error: (error as Error).message });
             });
           return true;
-        case 'triggerAutoLoad':
-          this.autoLoadEnabled = true;
-          this.attemptAutoLoad();
-          break;
         case 'startTranslationFromPage':
           this.startTranslationFromPage();
           break;
@@ -286,6 +277,8 @@ export class YouTubeSubtitleOverlay {
         </div>
       </div>
     `;
+    this.englishElement = this.overlayElement.querySelector('#englishSubtitle');
+    this.chineseElement = this.overlayElement.querySelector('#chineseSubtitle');
     this.applyStyles();
   }
 
@@ -344,8 +337,7 @@ export class YouTubeSubtitleOverlay {
     if (!this.overlayElement) return;
 
     const settings = language === 'english' ? this.englishSettings : this.chineseSettings;
-    const elementId = language === 'english' ? '#englishSubtitle' : '#chineseSubtitle';
-    const element = this.overlayElement.querySelector(elementId) as HTMLElement;
+    const element = language === 'english' ? this.englishElement : this.chineseElement;
 
     if (element && settings) {
       const baseFontSize = settings.fontSize;
@@ -365,7 +357,7 @@ export class YouTubeSubtitleOverlay {
         lineHeight: String(settings.lineHeight),
         padding: '0 6px',
         borderRadius: '3px',
-        display: 'inline',
+        display: element.textContent ? 'inline' : 'none',
         textAlign: 'center',
         whiteSpace: 'pre-wrap',
         wordBreak: 'normal',
@@ -408,25 +400,21 @@ export class YouTubeSubtitleOverlay {
       this.currentVideo = video;
       this.setupVideoListeners();
       this.insertOverlayToPage();
-      this.setupResizeListener();
     }
 
     if (videoIdChanged || videoElementChanged) {
       this.currentVideoId = newVideoId;
       this.hideSubtitle();
-      this.subtitleData = [];
       this.englishSubtitles = [];
       this.chineseSubtitles = [];
       this.loadSubtitleData();
-
-      setTimeout(() => {
-        this.attemptAutoLoad();
-      }, 500);
     }
   }
 
   private setupVideoListeners(): void {
     if (!this.currentVideo) return;
+
+    this.setupResizeListener();
 
     this.stopSubtitleSyncLoop();
 
@@ -638,31 +626,10 @@ export class YouTubeSubtitleOverlay {
   private repositionSubtitle(): void {
     if (!this.overlayElement || !this.currentVideo) return;
 
-    const container = this.overlayElement.querySelector('.subtitle-container') as HTMLElement;
-    this.applyContainerFlexStyles(container);
-
-    const englishWrapper = this.overlayElement.querySelector('.english-wrapper') as HTMLElement;
-    const chineseWrapper = this.overlayElement.querySelector('.chinese-wrapper') as HTMLElement;
-
-    this.applyWrapperStyles(englishWrapper);
-    this.applyWrapperStyles(chineseWrapper);
-
-    this.applyLanguageStyles('english');
-    this.applyLanguageStyles('chinese');
-
-    const englishEl = this.overlayElement.querySelector('#englishSubtitle') as HTMLElement;
-    const chineseEl = this.overlayElement.querySelector('#chineseSubtitle') as HTMLElement;
-    const hasText =
-      (englishEl && englishEl.textContent?.trim()) ||
-      (chineseEl && chineseEl.textContent?.trim());
-    if (!hasText) {
-      this.overlayElement.style.display = 'none';
-    }
-
     const isFullscreen = document.fullscreenElement !== null;
     const isTheaterMode = document.querySelector('.ytp-size-large') !== null;
-    const isMiniPlayer = document.querySelector('.ytp-miniplayer-active') !== null;
-    const videoRect = this.currentVideo.getBoundingClientRect();
+    this.isMiniPlayer = document.querySelector('.ytp-miniplayer-active') !== null;
+    this.updateOverlayVisibility();
 
     const playerContainer = document.querySelector('#movie_player') as HTMLElement;
 
@@ -674,11 +641,9 @@ export class YouTubeSubtitleOverlay {
       this.overlayElement.style.width = '80%';
       this.overlayElement.style.maxWidth = 'none';
       this.overlayElement.style.zIndex = '9999';
-    } else if (isMiniPlayer) {
-      this.overlayElement.style.display = 'none';
+    } else if (this.isMiniPlayer) {
       return;
     } else {
-      this.overlayElement.style.display = 'block';
       this.overlayElement.style.position = 'absolute';
       this.overlayElement.style.zIndex = '40';
 
@@ -697,6 +662,7 @@ export class YouTubeSubtitleOverlay {
           playerContainer.appendChild(this.overlayElement);
         }
       } else {
+        const videoRect = this.currentVideo.getBoundingClientRect();
         this.overlayElement.style.position = 'fixed';
         this.overlayElement.style.left = '50%';
         this.overlayElement.style.transform = 'translateX(-50%)';
@@ -756,17 +722,6 @@ export class YouTubeSubtitleOverlay {
       }
     }
 
-    if (
-      this.englishSubtitles.length === 0 &&
-      this.chineseSubtitles.length === 0 &&
-      this.subtitleData.length > 0
-    ) {
-      const currentSubtitle = this.findCurrentSubtitle(currentTime, this.subtitleData);
-      if (currentSubtitle) {
-        chineseText = currentSubtitle.text;
-      }
-    }
-
     if (englishText || chineseText) {
       this.showBilingualSubtitle(englishText, chineseText);
     } else {
@@ -775,46 +730,30 @@ export class YouTubeSubtitleOverlay {
   }
 
   private showBilingualSubtitle(englishText: string, chineseText: string): void {
+    for (const [element, text] of [
+      [this.englishElement, englishText],
+      [this.chineseElement, chineseText],
+    ] as const) {
+      if (element && element.textContent !== text) {
+        element.textContent = text;
+        element.style.display = text ? 'inline' : 'none';
+      }
+    }
+    this.updateOverlayVisibility();
+  }
+
+  private updateOverlayVisibility(): void {
     if (!this.overlayElement) return;
-
-    const englishSubtitle = this.overlayElement.querySelector('#englishSubtitle') as HTMLElement;
-    const chineseSubtitle = this.overlayElement.querySelector('#chineseSubtitle') as HTMLElement;
-
-    if (englishSubtitle) {
-      englishSubtitle.textContent = englishText;
-      englishSubtitle.style.display = englishText ? 'inline' : 'none';
+    const visible = this.isEnabled && !this.isMiniPlayer &&
+      !!(this.englishElement?.textContent || this.chineseElement?.textContent);
+    const display = visible ? 'block' : 'none';
+    if (this.overlayElement.style.display !== display) {
+      this.overlayElement.style.display = display;
     }
-
-    if (chineseSubtitle) {
-      chineseSubtitle.textContent = chineseText;
-      chineseSubtitle.style.display = chineseText ? 'inline' : 'none';
-    }
-
-    this.overlayElement.style.display = 'block';
-    this.overlayElement.style.position = 'absolute';
-    this.overlayElement.style.zIndex = '40';
-    this.overlayElement.style.visibility = 'visible';
-    this.overlayElement.style.opacity = '1';
-
-    this.repositionSubtitle();
   }
 
   private hideSubtitle(): void {
-    if (!this.overlayElement) return;
-    this.overlayElement.style.display = 'none';
-    this.overlayElement.style.visibility = 'hidden';
-    this.overlayElement.style.opacity = '0';
-
-    const englishSubtitle = this.overlayElement.querySelector('#englishSubtitle') as HTMLElement;
-    const chineseSubtitle = this.overlayElement.querySelector('#chineseSubtitle') as HTMLElement;
-    if (englishSubtitle) {
-      englishSubtitle.textContent = '';
-      englishSubtitle.style.display = 'none';
-    }
-    if (chineseSubtitle) {
-      chineseSubtitle.textContent = '';
-      chineseSubtitle.style.display = 'none';
-    }
+    this.showBilingualSubtitle('', '');
   }
 
   private showErrorNotification(message: string): void {
@@ -871,10 +810,10 @@ export class YouTubeSubtitleOverlay {
       this.stopSubtitleSyncLoop();
       this.hideSubtitle();
     } else {
+      this.repositionSubtitle();
       if (
         this.englishSubtitles.length > 0 ||
-        this.chineseSubtitles.length > 0 ||
-        this.subtitleData.length > 0
+        this.chineseSubtitles.length > 0
       ) {
         if (this.currentVideo) {
           this.updateSubtitle();
@@ -908,6 +847,7 @@ export class YouTubeSubtitleOverlay {
         this.insertOverlayToPage();
       }
       void chrome.runtime.sendMessage({ action: 'setSubtitleEnabled', enabled: true });
+      this.repositionSubtitle();
       this.setupVideoListeners();
     }
     this.updateSubtitle();
@@ -915,7 +855,6 @@ export class YouTubeSubtitleOverlay {
 
   private clearSubtitleData(): void {
     this.stopSubtitleSyncLoop();
-    this.subtitleData = [];
     this.englishSubtitles = [];
     this.chineseSubtitles = [];
     this.hideSubtitle();
@@ -943,7 +882,6 @@ export class YouTubeSubtitleOverlay {
         'subtitleEnabled',
         'englishSettings',
         'chineseSettings',
-        'autoLoadEnabled',
       ]);
 
       const statusResponse = currentVideoId
@@ -959,7 +897,6 @@ export class YouTubeSubtitleOverlay {
         return;
       }
 
-      this.subtitleData = [];
       this.englishSubtitles = [];
       this.chineseSubtitles = [];
 
@@ -968,16 +905,12 @@ export class YouTubeSubtitleOverlay {
           this.englishSubtitles = videoSubtitles.englishSubtitles || [];
           this.chineseSubtitles = videoSubtitles.chineseSubtitles || [];
         } else if (videoSubtitles.subtitleData && videoSubtitles.subtitleData.length > 0) {
-          this.subtitleData = videoSubtitles.subtitleData;
+          this.chineseSubtitles = videoSubtitles.subtitleData;
         }
       }
 
       if (result.subtitleEnabled !== undefined) {
         this.isEnabled = result.subtitleEnabled as boolean;
-      }
-
-      if (result.autoLoadEnabled !== undefined) {
-        this.autoLoadEnabled = result.autoLoadEnabled as boolean;
       }
 
       if (result.englishSettings) {
@@ -1007,14 +940,14 @@ export class YouTubeSubtitleOverlay {
 
       const hasSubtitles =
         this.englishSubtitles.length > 0 ||
-        this.chineseSubtitles.length > 0 ||
-        this.subtitleData.length > 0;
+        this.chineseSubtitles.length > 0;
 
       if (hasSubtitles && this.isEnabled) {
         if (!this.currentVideo) {
           this.currentVideo = document.querySelector('video');
         }
         if (this.currentVideo && this.overlayElement) {
+          this.repositionSubtitle();
           this.setupVideoListeners();
           this.updateSubtitle();
         }
@@ -1022,36 +955,9 @@ export class YouTubeSubtitleOverlay {
     } catch {}
   }
 
-  private toggleAutoLoad(enabled: boolean): void {
-    this.autoLoadEnabled = enabled;
-
-    if (enabled) {
-      this.attemptAutoLoad();
-    }
-  }
-
   private getVideoId(): string | null {
     const urlParams = new URLSearchParams(window.location.search);
     return urlParams.get('v');
-  }
-
-  private async attemptAutoLoad(): Promise<void> {
-    if (!this.autoLoadEnabled) return;
-
-    const videoId = this.getVideoId();
-    if (!videoId) return;
-
-    const isNewVideo = videoId !== this.currentVideoId;
-    const hasExistingSubtitles =
-      this.englishSubtitles.length > 0 ||
-      this.chineseSubtitles.length > 0 ||
-      this.subtitleData.length > 0;
-
-    if (!isNewVideo && hasExistingSubtitles) return;
-
-    this.currentVideoId = videoId;
-
-    await this.loadSubtitleData();
   }
 }
 

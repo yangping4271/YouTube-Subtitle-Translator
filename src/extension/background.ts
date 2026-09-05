@@ -107,6 +107,7 @@ const TRANSLATION_RESUME_PERIOD_MINUTES = 0.5;
 const TRANSLATION_RESUME_AFTER_MS = 45_000;
 
 class SubtitleExtensionBackground {
+  private startGeneration = 0;
   private readonly translationCoordinator: BrowserTranslationCoordinator;
 
   constructor() {
@@ -238,12 +239,8 @@ class SubtitleExtensionBackground {
     chrome.storage.local.clear().then(() => {
       chrome.storage.local.set({
         subtitleEnabled: false,
-        subtitleData: [],
-        englishSubtitles: [],
-        chineseSubtitles: [],
         englishSettings: getDefaultEnglishSettings(),
         chineseSettings: getDefaultChineseSettings(),
-        autoLoadEnabled: false,
       });
     });
   }
@@ -294,9 +291,9 @@ class SubtitleExtensionBackground {
     const sourceTabId = sender.tab?.id;
     try {
       switch (request.action) {
-        case 'getBilingualSubtitleData': {
-          const bilingualData = await this.getBilingualSubtitleData();
-          sendResponse({ success: true, data: bilingualData });
+        case 'getSubtitleSettings': {
+          const settings = await this.getSubtitleSettings();
+          sendResponse({ success: true, data: settings });
           break;
         }
 
@@ -334,6 +331,7 @@ class SubtitleExtensionBackground {
           break;
 
         case 'cancelTranslation':
+          this.startGeneration++;
           await this.cancelBackgroundTranslation(request, sourceTabId, sendResponse);
           break;
 
@@ -355,26 +353,17 @@ class SubtitleExtensionBackground {
     }
   }
 
-  async getBilingualSubtitleData(): Promise<{
-    subtitleData: SimpleSubtitleEntry[];
-    englishSubtitles: SimpleSubtitleEntry[];
-    chineseSubtitles: SimpleSubtitleEntry[];
+  async getSubtitleSettings(): Promise<{
     subtitleEnabled: boolean;
     englishSettings: SubtitleStyleSettings;
     chineseSettings: SubtitleStyleSettings;
   }> {
     const result = await chrome.storage.local.get([
-      'subtitleData',
-      'englishSubtitles',
-      'chineseSubtitles',
       'subtitleEnabled',
       'englishSettings',
       'chineseSettings',
     ]);
     return {
-      subtitleData: (result.subtitleData as SimpleSubtitleEntry[]) || [],
-      englishSubtitles: (result.englishSubtitles as SimpleSubtitleEntry[]) || [],
-      chineseSubtitles: (result.chineseSubtitles as SimpleSubtitleEntry[]) || [],
       subtitleEnabled: (result.subtitleEnabled as boolean) || false,
       englishSettings: (result.englishSettings as SubtitleStyleSettings) || {},
       chineseSettings: (result.chineseSettings as SubtitleStyleSettings) || {},
@@ -432,12 +421,6 @@ class SubtitleExtensionBackground {
       key.startsWith('videoSubtitles_')
     );
 
-    await chrome.storage.local.set({
-      subtitleData: [],
-      englishSubtitles: [],
-      chineseSubtitles: [],
-    });
-
     if (videoSubtitleKeys.length > 0) {
       await chrome.storage.local.remove(videoSubtitleKeys);
     }
@@ -483,6 +466,7 @@ class SubtitleExtensionBackground {
     sourceTabId: number | undefined,
     sendResponse: (response: unknown) => void
   ): Promise<void> {
+    const generation = ++this.startGeneration;
     const { subtitles, targetLanguage, videoId, apiConfig } = request;
 
     if (!subtitles || subtitles.length === 0) {
@@ -502,6 +486,11 @@ class SubtitleExtensionBackground {
       active: true,
       currentWindow: true,
     }))[0]?.id;
+
+    if (generation !== this.startGeneration) {
+      sendResponse({ success: false, error: '翻译已取消' });
+      return;
+    }
 
     const startRequest = {
       subtitles,

@@ -627,7 +627,7 @@ class PopupController {
     // ========================================
     async loadCurrentState() {
         try {
-            const response = await chrome.runtime.sendMessage({ action: 'getBilingualSubtitleData' });
+            const response = await chrome.runtime.sendMessage({ action: 'getSubtitleSettings' });
             if (response.success) {
                 const {
                     subtitleEnabled,
@@ -1245,10 +1245,11 @@ class PopupController {
     startProgressListener() {
         if (this._progressListener) return;
 
-        this._progressListener = async (changes, areaName) => {
+        const listener = async (changes, areaName) => {
             if (areaName !== 'local' || !changes.translationProgress) return;
 
             const newValue = (await this.getTranslationStatus()).progress;
+            if (this._progressListener !== listener || this._isCancelling) return;
 
             if (newValue && newValue.isTranslating) {
                 this.showTranslationProgress(newValue);
@@ -1265,14 +1266,20 @@ class PopupController {
             }
         };
 
-        chrome.storage.onChanged.addListener(this._progressListener);
+        this._progressListener = listener;
+        chrome.storage.onChanged.addListener(listener);
     }
 
     /**
      * 强制重置翻译状态
      */
     async forceResetTranslation() {
-        const currentVideoId = await this.getCurrentVideoId();
+        if (this._isCancelling) return;
+        this._isCancelling = true;
+        // 同步使所有尚在等待权限、字幕或后台响应的旧流程失效。
+        const operation = this._translationOperation;
+        this._translationOperation = null;
+        const currentVideoId = operation?.videoId || await this.getCurrentVideoId();
 
         // 取消、进度和当前视频缓存由 Translation session 统一清理
         try {
@@ -1302,6 +1309,7 @@ class PopupController {
         }
 
         // 重置 UI
+        this._isCancelling = false;
         this.resetTranslationButton();
         await this.updateTranslateButton();
     }
@@ -1326,13 +1334,16 @@ class PopupController {
         const translateBtn = document.getElementById('translateBtn');
         if (!translateBtn || this.isTranslating) return;
 
+        const operation = this._translationOperation;
         const currentVideoId = await this.getCurrentVideoId();
+        if (this.isTranslating || this._translationOperation !== operation) return;
         if (!currentVideoId) {
             translateBtn.innerHTML = '<span class="btn-text">开始翻译</span>';
             return;
         }
 
         const cached = (await this.getTranslationStatus(currentVideoId)).cachedResult;
+        if (this.isTranslating || this._translationOperation !== operation) return;
 
         if (cached && (cached.englishSubtitles?.length > 0 || cached.chineseSubtitles?.length > 0)) {
             translateBtn.innerHTML = '<span class="btn-text">重新翻译</span>';
@@ -1352,7 +1363,7 @@ class PopupController {
     }
 
     async startTranslation() {
-        if (this.isTranslating) {
+        if (this.isTranslating || this._isCancelling) {
             return;
         }
 
@@ -1368,22 +1379,9 @@ class PopupController {
             return;
         }
 
-        try {
-            await this.requestApiHostPermission(
-                this.getActiveApiProvider() || this.apiConfig.openaiBaseUrl
-            );
-        } catch (error) {
-            const autoLoadStatus = document.getElementById('autoLoadStatus');
-            const message = error instanceof Error ? error.message : String(error);
-            if (autoLoadStatus) {
-                autoLoadStatus.textContent = formatPopupError(`API 权限未授予: ${message}`);
-                autoLoadStatus.className = 'load-status error';
-            }
-            return;
-        }
-
-        // 获取当前视频ID
-        const currentVideoId = await this.getCurrentVideoId();
+        const operation = {};
+        this._translationOperation = operation;
+        const isCurrent = () => this._translationOperation === operation;
         const translateBtn = document.getElementById('translateBtn');
 
         const progressRow = document.getElementById('progressRow');
@@ -1407,8 +1405,17 @@ class PopupController {
                 autoLoadStatus.className = 'load-status translating';
             }
 
+            await this.requestApiHostPermission(
+                this.getActiveApiProvider() || this.apiConfig.openaiBaseUrl
+            );
+            if (!isCurrent()) return;
+            const currentVideoId = await this.getCurrentVideoId();
+            if (!isCurrent()) return;
+            operation.videoId = currentVideoId;
+
             // 1. 从YouTube获取字幕
             const subtitles = await this.fetchYouTubeSubtitles();
+            if (!isCurrent()) return;
             if (!subtitles || subtitles.length === 0) {
                 throw new Error('无法获取YouTube字幕，请确保视频有字幕');
             }
@@ -1417,6 +1424,7 @@ class PopupController {
 
             // 获取视频信息（标题、描述等）
             const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+            if (!isCurrent()) return;
             let videoInfo = {};
             if (tabs.length > 0) {
                 try {
@@ -1440,6 +1448,8 @@ class PopupController {
                 } catch {}
             }
 
+            if (!isCurrent()) return;
+
             // 2. 发送消息到后台启动翻译（popup关闭后仍可继续）
             const response = await chrome.runtime.sendMessage({
                 action: 'startTranslation',
@@ -1450,6 +1460,7 @@ class PopupController {
                 videoInfo: videoInfo
             });
 
+            if (!isCurrent()) return;
             if (!response || !response.success) {
                 throw new Error(response?.error || '启动翻译失败');
             }
@@ -1461,6 +1472,7 @@ class PopupController {
             if (autoLoadStatus) autoLoadStatus.textContent = '翻译已在后台运行...';
             return; // 翻译结果由 storage 监听器处理
         } catch (error) {
+            if (!isCurrent()) return;
             if (autoLoadStatus) {
                 autoLoadStatus.textContent = `翻译失败：${formatPopupError(error)}`;
                 autoLoadStatus.className = 'load-status error';
