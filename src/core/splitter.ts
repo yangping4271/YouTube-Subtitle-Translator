@@ -212,7 +212,27 @@ export async function mergeSegmentsWithinBatch(
     llmSentences
   );
 
-  return new SubtitleData(alignedSegments);
+  // 在同一连续语句内收拢过碎的片段；不跨标点、停顿或重叠时间。
+  for (let i = 0; i < alignedSegments.length - 1;) {
+    const current = alignedSegments[i];
+    const next = alignedSegments[i + 1];
+    const gap = next.startTime - current.endTime;
+    if (!/[.,!?;:…，。！？；：]["'”’)]?$/.test(current.text.trim())
+      && gap >= 0 && gap <= 200
+      && /^[a-z]/.test(next.text)
+      && next.endTime - current.startTime <= 7000
+      && countWords(`${current.text} ${next.text}`) <= config.maxWordCountEnglish) {
+      alignedSegments.splice(i, 2, {
+        ...current,
+        text: `${current.text} ${next.text}`,
+        endTime: next.endTime,
+      });
+    } else {
+      i++;
+    }
+  }
+
+  return new SubtitleData(alignedSegments.map((segment, i) => ({ ...segment, index: i + 1 })));
 }
 
 

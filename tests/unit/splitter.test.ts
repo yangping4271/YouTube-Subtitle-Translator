@@ -171,6 +171,55 @@ describe('mergeSegmentsWithinBatch', () => {
     maxMultiplier: 2.0,
   };
 
+  it.each([
+    { subject: 'We', duration: 260, gap: 0, rest: 'scanned Instagram for reels.', limit: 19, merged: true },
+    { subject: 'I', duration: 200, gap: 100, rest: 'forgot the deadline.', limit: 19, merged: true },
+    { subject: 'It', duration: 250, gap: 0, rest: 'represents the activation.', limit: 19, merged: true },
+    { subject: 'We', duration: 260, gap: -100, rest: 'were ready.', limit: 19, merged: false },
+    { subject: 'You?', duration: 260, gap: 0, rest: 'yes, me.', limit: 19, merged: false },
+    { subject: 'I', duration: 200, gap: 0, rest: 'No, wait.', limit: 19, merged: false },
+    { subject: 'We', duration: 260, gap: 300, rest: 'scanned Instagram for reels.', limit: 19, merged: false },
+    { subject: 'We', duration: 1000, gap: 0, rest: 'scanned Instagram for reels.', limit: 19, merged: true },
+    { subject: 'Yes.', duration: 260, gap: 0, rest: 'we scanned Instagram.', limit: 19, merged: false },
+    { subject: 'We', duration: 260, gap: 0, rest: 'scanned Instagram for reels.', limit: 4, merged: false },
+  ])('连续残句合并遵守停顿与长度边界：$subject/$duration/$gap/$limit', async ({subject, duration, gap, rest, limit, merged}) => {
+    const source = [
+      { index: 1, startTime: 1000, endTime: 1000 + duration, text: subject },
+      { index: 2, startTime: 1000 + duration + gap, endTime: 4000, text: rest },
+    ];
+    const sentences = [{ text: `${subject} ${rest}`, wordStartIndex: 0, wordEndIndex: 2, startTime: 1000, endTime: 4000 }];
+    const result = await mergeSegmentsWithinBatch(sentences, source, {
+      callChat: async () => `${subject}<br>${rest}`,
+    }, { ...config, maxWordCountEnglish: limit });
+    expect(result.getSegments().map(e => e.index)).toEqual(merged ? [1] : [1, 2]);
+    expect(result.getSegments().map(e => ({ text:e.text, startTime:e.startTime, endTime:e.endTime })))
+      .toEqual(merged ? [{ text:`${subject} ${rest}`, startTime:1000, endTime:4000 }]
+        : source.map(({text,startTime,endTime}) => ({text,startTime,endTime})));
+  });
+
+  it.each([
+    { endTime: 7000, limit: 19, expected: ['This network learns from data.', 'Yes.'] },
+    { endTime: 7001, limit: 19, expected: ['This network learns', 'from data.', 'Yes.'] },
+    { endTime: 7000, limit: 4, expected: ['This network learns', 'from data.', 'Yes.'] },
+  ])('连续合并保留词序和时间，限制总时长与词数：$endTime/$limit', async ({ endTime, limit, expected }) => {
+    const source: SubtitleEntry[] = [
+      { index: 1, startTime: 0, endTime: 1000, text: 'This network' },
+      { index: 2, startTime: 1000, endTime: 2000, text: 'learns' },
+      { index: 3, startTime: 2000, endTime, text: 'from data.' },
+      { index: 4, startTime: endTime, endTime: endTime + 1000, text: 'Yes.' },
+    ];
+    const sentences = [{ text: source.map(s => s.text).join(' '), wordStartIndex: 0, wordEndIndex: 4, startTime: 0, endTime: endTime + 1000 }];
+    const result = (await mergeSegmentsWithinBatch(sentences, source, {
+      callChat: async () => source.map(s => s.text).join('<br>'),
+    }, { ...config, maxWordCountEnglish: limit })).getSegments();
+    expect(result.map(s => s.text)).toEqual(expected);
+    expect(result.map(s => s.text).join(' ')).toBe(source.map(s => s.text).join(' '));
+    expect(result.map(s => [s.startTime, s.endTime])).toEqual(expected.length === 2
+      ? [[0, endTime], [endTime, endTime + 1000]]
+      : [[0, 2000], [2000, endTime], [endTime, endTime + 1000]]);
+    expect(result.map(s => s.index)).toEqual(expected.map((_, i) => i + 1));
+  });
+
   it('保留断句结果，不再把短句重新并长', async () => {
     const wordSegments: SubtitleEntry[] = [
       { index: 1, startTime: 0, endTime: 200, text: 'I' },
