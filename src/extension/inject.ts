@@ -2,7 +2,10 @@
  * YouTube Subtitle Translator - Main World 注入脚本
  * 在页面上下文中运行，可访问 YouTube 的自定义元素属性
  */
-import { rewriteTranscriptParamsVideoId } from '../core/youtube-transcript-params.js';
+import {
+  rewriteTranscriptParamsVideoId,
+  rewriteTranscriptPanelParamsVideoId,
+} from '../core/youtube-transcript-params.js';
 
 interface YouTubeEngagementPanel extends HTMLElement {
   visibility?: string;
@@ -95,7 +98,7 @@ function readTranscriptPanelRequest(command: unknown): TranscriptPanelRequest | 
   const panelId = panelCommand?.contentSourcePanelIdentifier?.tag;
   const params = panelCommand?.globalConfiguration?.params;
 
-  return typeof panelId === 'string' && typeof params === 'string'
+  return panelId === 'PAmodern_transcript_view' && typeof params === 'string'
     ? { panelId, params }
     : null;
 }
@@ -385,6 +388,12 @@ window.addEventListener('YTSP_RequestTranscriptPanel', async (event) => {
   }
 
   try {
+    const params = typeof requestedVideoId === 'string'
+      ? rewriteTranscriptPanelParamsVideoId(request.params, requestedVideoId)
+      : null;
+    if (!params) {
+      throw new Error('transcript panel params 与当前视频不匹配');
+    }
     const authorization = await createYouTubeAuthorizationHeader();
     const response = await fetch('/youtubei/v1/get_panel?prettyPrint=false', {
       method: 'POST',
@@ -403,7 +412,7 @@ window.addEventListener('YTSP_RequestTranscriptPanel', async (event) => {
       body: JSON.stringify({
         context,
         panelId: request.panelId,
-        params: request.params,
+        params,
       }),
     });
     window.postMessage({

@@ -1,3 +1,27 @@
+/** 新版 get_panel 参数：field 149 内的 field 1 是 videoId。拒绝未知结构。 */
+export function rewriteTranscriptPanelParamsVideoId(
+  params: string,
+  videoId: string
+): string | null {
+  try {
+    const binary = atob(decodeURIComponent(params).replace(/-/g, '+').replace(/_/g, '/'));
+    const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+    if (
+      videoId.length !== 11 ||
+      bytes[0] !== 0xaa || bytes[1] !== 0x09 ||
+      bytes[2] !== bytes.length - 3 || bytes[2] >= 0x80 ||
+      bytes[3] !== 0x0a || bytes[4] !== videoId.length ||
+      bytes.length < 5 + videoId.length
+    ) return null;
+
+    bytes.set(new TextEncoder().encode(videoId), 5);
+    return btoa(String.fromCharCode(...bytes))
+      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  } catch {
+    return null;
+  }
+}
+
 export function rewriteTranscriptParamsVideoId(
   params: string,
   videoId: string,

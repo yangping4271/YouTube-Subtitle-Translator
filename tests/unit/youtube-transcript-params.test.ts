@@ -1,6 +1,25 @@
 import { describe, expect, it } from 'vitest';
 
-import { rewriteTranscriptParamsVideoId } from '../../src/core/youtube-transcript-params.js';
+import {
+  rewriteTranscriptParamsVideoId,
+  rewriteTranscriptPanelParamsVideoId,
+} from '../../src/core/youtube-transcript-params.js';
+
+describe('新版 YouTube transcript panel params', () => {
+  it('切换视频后替换嵌套 videoId，保留面板选项', () => {
+    const rewritten = rewriteTranscriptPanelParamsVideoId(
+      'qgkPCgtiT0MzRGlzRU9mZxgB', 'NSqlZ1L81nQ'
+    );
+    const decoded = atob(rewritten!);
+    expect(decoded.slice(5, 16)).toBe('NSqlZ1L81nQ');
+    expect(decoded.slice(16)).toBe('\u0018\u0001');
+    expect(decoded.slice(0, 5)).toBe('\u00aa\u0009\u000f\u000a\u000b');
+  });
+
+  it.each(['invalid', '', 'CgtiT0MzRGlzRU9mZw==', 'qgkPCgtiT0Mz'])('未知或截断参数不发送请求：%s', (params) => {
+    expect(rewriteTranscriptPanelParamsVideoId(params, 'NSqlZ1L81nQ')).toBeNull();
+  });
+});
 
 describe('YouTube transcript params', () => {
   it('将 SPA 遗留参数中的旧 videoId 替换为当前 videoId', () => {
