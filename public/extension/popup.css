@@ -92,7 +92,8 @@ body::before {
     bottom: 20px;
     left: 50%;
     z-index: 9999;
-    max-width: 300px;
+    width: max-content;
+    max-width: min(300px, calc(100vw - 32px));
     padding: 10px 16px;
     border-radius: 8px;
     color: #fff;
@@ -885,12 +886,15 @@ body::before {
 }
 
 .info-label {
+    flex-shrink: 0;
+    white-space: nowrap;
     font-size: 12px;
     opacity: 0.9;
     color: var(--text-secondary);
 }
 
 .info-value {
+    min-width: 0;
     font-size: 12px;
     font-weight: 600;
     color: var(--text-white);
@@ -1239,4 +1243,26 @@ body::before {
 :root[data-theme-effective="light"] .load-status.error {
     background: rgba(214, 69, 69, 0.12);
     color: #b33939 !important;
+}
+
+/* 状态文本始终留在卡片内，长错误可滚动阅读。 */
+#autoLoadStatus,
+#apiStatusText,
+.toast {
+    min-width: 0;
+    max-height: 140px;
+    overflow: auto;
+    overflow-wrap: anywhere;
+    white-space: normal;
+    line-height: 1.6;
+}
+
+.info-row:has(#autoLoadStatus.error) {
+    align-items: flex-start;
+}
+
+#autoLoadStatus.error {
+    text-align: left;
+    padding: 6px 10px;
+    border-radius: 8px;
 }

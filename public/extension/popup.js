@@ -1,3 +1,27 @@
+function formatPopupError(error) {
+    const raw = (error?.message || String(error || '操作失败，请重试')).trim();
+    const status = raw.match(/\bHTTP\s+(\d{3})\b/i)?.[1];
+    const hints = {
+        401: 'API 鉴权失败，请检查 API Key。',
+        402: 'API 余额不足，请充值或切换服务商。',
+        403: 'API 拒绝访问，请检查账号和模型权限。',
+        404: 'API 地址或模型不存在，请检查配置。',
+        429: 'API 请求受限，请检查额度或稍后重试。',
+    };
+    if (hints[status]) return `${hints[status]}（HTTP ${status}）`;
+    if (status && Number(status) >= 500) return `API 服务暂时不可用，请稍后重试。（HTTP ${status}）`;
+
+    const jsonStart = raw.indexOf('{');
+    if (jsonStart !== -1) {
+        try {
+            const body = JSON.parse(raw.slice(jsonStart));
+            const message = body.error?.message || body.message;
+            if (typeof message === 'string') return raw.slice(0, jsonStart) + message;
+        } catch {}
+    }
+    return raw;
+}
+
 class Toast {
     static show(message, type, duration) {
         const toast = document.createElement('div');
@@ -16,7 +40,7 @@ class Toast {
     }
 
     static error(message, duration = 3000) {
-        this.show(message, 'error', duration);
+        this.show(formatPopupError(message), 'error', duration);
     }
 
 }
@@ -740,6 +764,7 @@ class PopupController {
                 statusElement.classList.add('success');
             } else if (status && (status.includes('失败') || status.includes('错误'))) {
                 statusElement.classList.add('error');
+                statusElement.textContent = formatPopupError(status);
             } else if (status && (status.includes('加载中') || status.includes('检测中'))) {
                 statusElement.classList.add('loading');
             }
@@ -1089,7 +1114,7 @@ class PopupController {
             apiStatus.className = `api-status ${type}`;
         }
         if (apiStatusText) {
-            apiStatusText.textContent = message;
+            apiStatusText.textContent = type === 'error' ? formatPopupError(message) : message;
         }
     }
 
@@ -1193,7 +1218,7 @@ class PopupController {
     showTranslationError(error) {
         const autoLoadStatus = document.getElementById('autoLoadStatus');
         if (autoLoadStatus) {
-            autoLoadStatus.textContent = `翻译失败: ${error}`;
+            autoLoadStatus.textContent = `翻译失败：${formatPopupError(error)}`;
             autoLoadStatus.className = 'load-status error';
         }
         this.resetTranslationButton();
@@ -1355,7 +1380,7 @@ class PopupController {
             const autoLoadStatus = document.getElementById('autoLoadStatus');
             const message = error instanceof Error ? error.message : String(error);
             if (autoLoadStatus) {
-                autoLoadStatus.textContent = `API 权限未授予: ${message}`;
+                autoLoadStatus.textContent = formatPopupError(`API 权限未授予: ${message}`);
                 autoLoadStatus.className = 'load-status error';
             }
             return;
@@ -1448,7 +1473,7 @@ class PopupController {
             return; // 翻译结果由 storage 监听器处理
         } catch (error) {
             if (autoLoadStatus) {
-                autoLoadStatus.textContent = `翻译失败: ${error.message}`;
+                autoLoadStatus.textContent = `翻译失败：${formatPopupError(error)}`;
                 autoLoadStatus.className = 'load-status error';
             }
             this.resetTranslationButton();
