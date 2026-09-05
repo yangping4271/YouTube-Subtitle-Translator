@@ -164,12 +164,6 @@ export interface SimpleSubtitleEntry {
   text: string;
 }
 
-/** ASS 解析结果 */
-export interface ASSParseResult {
-  english: SimpleSubtitleEntry[];
-  chinese: SimpleSubtitleEntry[];
-}
-
 /** 视频信息 */
 export interface VideoInfo {
   ytTitle: string;

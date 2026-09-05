@@ -1177,6 +1177,7 @@ class PopupController {
     }
 
     showTranslationProgress(progress) {
+        this.isTranslating = true;
         const translateBtn = document.getElementById('translateBtn');
         const progressRow = document.getElementById('progressRow');
         const progressFill = document.getElementById('progressFill');
@@ -1187,12 +1188,7 @@ class PopupController {
             translateBtn.disabled = false; // 允许点击取消
             translateBtn.innerHTML = '<span class="btn-text">取消翻译</span>';
             translateBtn.classList.add('translating');
-            // 绑定取消事件(只绑定一次)
-            if (!translateBtn._cancelBound) {
-                translateBtn._cancelBound = true;
-                translateBtn._originalClick = translateBtn.onclick;
-                translateBtn.onclick = () => this.forceResetTranslation();
-            }
+
         }
         if (progressRow) progressRow.style.display = 'flex';
 
@@ -1320,8 +1316,6 @@ class PopupController {
             translateBtn.disabled = false;
             translateBtn.innerHTML = '<span class="btn-text">开始翻译</span>';
             translateBtn.classList.remove('translating');
-            translateBtn._cancelBound = false;
-            translateBtn.onclick = null;
         }
     }
 
@@ -1351,7 +1345,9 @@ class PopupController {
         const translateBtn = document.getElementById('translateBtn');
 
         if (translateBtn) {
-            translateBtn.addEventListener('click', () => this.startTranslation());
+            translateBtn.addEventListener('click', () =>
+                this.isTranslating ? this.forceResetTranslation() : this.startTranslation()
+            );
         }
     }
 
@@ -1403,13 +1399,6 @@ class PopupController {
                 translateBtn.disabled = false; // 不禁用按钮，允许点击取消
                 translateBtn.innerHTML = '<span class="btn-text">取消翻译</span>';
                 translateBtn.classList.add('translating');
-
-                // 绑定取消事件（只绑定一次）
-                if (!translateBtn._cancelBound) {
-                    translateBtn._cancelBound = true;
-                    translateBtn._originalClick = translateBtn.onclick;
-                    translateBtn.onclick = () => this.forceResetTranslation();
-                }
             }
 
             if (progressRow) progressRow.style.display = 'flex';

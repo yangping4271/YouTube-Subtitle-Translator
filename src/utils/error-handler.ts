@@ -415,30 +415,3 @@ export function classifyErrorWithSuggestion(error: unknown): ErrorInfo {
     isRetryable: true,
   };
 }
-
-/**
- * 自定义翻译错误类
- */
-export class TranslationError extends Error {
-  public readonly suggestion: string;
-  public readonly category: ErrorCategory;
-  public readonly isRetryable: boolean;
-
-  constructor(message: string, errorInfo?: Partial<ErrorInfo>) {
-    super(message);
-    this.name = 'TranslationError';
-    this.suggestion = errorInfo?.suggestion || '请检查配置或稍后重试';
-    this.category = errorInfo?.category || ErrorCategory.UNKNOWN;
-    this.isRetryable = errorInfo?.isRetryable ?? true;
-  }
-
-  static fromError(error: unknown, context?: string): TranslationError {
-    const errorInfo = classifyErrorWithSuggestion(error);
-    const message = context ? `${context}: ${errorInfo.message}` : errorInfo.message;
-    return new TranslationError(message, errorInfo);
-  }
-
-  getFullMessage(): string {
-    return `${this.message}\n${this.suggestion}`;
-  }
-}

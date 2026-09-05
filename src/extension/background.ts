@@ -300,28 +300,6 @@ class SubtitleExtensionBackground {
           break;
         }
 
-        case 'saveBilingualSubtitles':
-          await this.saveBilingualSubtitles(
-            request.englishSubtitles || [],
-            request.chineseSubtitles || []
-          );
-          await this.notifyContentScript('loadBilingualSubtitles', {
-            englishSubtitles: request.englishSubtitles,
-            chineseSubtitles: request.chineseSubtitles,
-          }, sourceTabId);
-          sendResponse({ success: true });
-          break;
-
-        case 'saveVideoSubtitles':
-          await this.saveVideoSubtitles(
-            request.videoId || '',
-            request.englishSubtitles,
-            request.chineseSubtitles,
-            request.subtitleData
-          );
-          sendResponse({ success: true });
-          break;
-
         case 'toggleSubtitle':
           await this.toggleSubtitle(request.enabled || false, sourceTabId);
           sendResponse({ success: true });
@@ -425,51 +403,6 @@ class SubtitleExtensionBackground {
     }, videoId, pageUrl));
   }
 
-  async saveVideoSubtitles(
-    videoId: string,
-    englishSubtitles?: SimpleSubtitleEntry[],
-    chineseSubtitles?: SimpleSubtitleEntry[],
-    subtitleData?: SimpleSubtitleEntry[]
-  ): Promise<void> {
-    if (!videoId) {
-      return;
-    }
-
-    const subtitleKey = `videoSubtitles_${videoId}`;
-    const videoSubtitleData: VideoSubtitleData = {
-      videoId,
-      timestamp: new Date().toISOString(),
-    };
-
-    if (englishSubtitles || chineseSubtitles) {
-      videoSubtitleData.englishSubtitles = englishSubtitles || [];
-      videoSubtitleData.chineseSubtitles = chineseSubtitles || [];
-    }
-
-    if (subtitleData) {
-      videoSubtitleData.subtitleData = subtitleData;
-    }
-
-    await chrome.storage.local.set({ [subtitleKey]: videoSubtitleData });
-
-    if (englishSubtitles || chineseSubtitles) {
-      await this.notifyContentScript('loadBilingualSubtitles', {
-        englishSubtitles: englishSubtitles || [],
-        chineseSubtitles: chineseSubtitles || [],
-      });
-    }
-  }
-
-  async saveBilingualSubtitles(
-    englishSubtitles: SimpleSubtitleEntry[],
-    chineseSubtitles: SimpleSubtitleEntry[]
-  ): Promise<void> {
-    await chrome.storage.local.set({
-      englishSubtitles: englishSubtitles || [],
-      chineseSubtitles: chineseSubtitles || [],
-    });
-  }
-
   async toggleSubtitle(enabled: boolean, tabId?: number): Promise<void> {
     await chrome.storage.local.set({ subtitleEnabled: enabled });
     await this.notifyContentScript('toggleSubtitle', { enabled }, tabId);
@@ -483,31 +416,14 @@ class SubtitleExtensionBackground {
     language: 'english' | 'chinese';
     data: Partial<SubtitleStyleSettings>;
   }, tabId?: number): Promise<void> {
-    if (settings.language === 'english') {
-      const currentSettings = await chrome.storage.local.get(['englishSettings']);
-      const newSettings = {
-        ...((currentSettings.englishSettings as SubtitleStyleSettings) || {}),
-        ...settings.data,
-      };
-
-      await chrome.storage.local.set({ englishSettings: newSettings });
-      await this.notifyContentScript('updateSettings', {
-        language: 'english',
-        settings: newSettings,
-      }, tabId);
-    } else if (settings.language === 'chinese') {
-      const currentSettings = await chrome.storage.local.get(['chineseSettings']);
-      const newSettings = {
-        ...((currentSettings.chineseSettings as SubtitleStyleSettings) || {}),
-        ...settings.data,
-      };
-
-      await chrome.storage.local.set({ chineseSettings: newSettings });
-      await this.notifyContentScript('updateSettings', {
-        language: 'chinese',
-        settings: newSettings,
-      }, tabId);
-    }
+    const key = `${settings.language}Settings`;
+    const current = await chrome.storage.local.get([key]);
+    const updated = { ...((current[key] as SubtitleStyleSettings) || {}), ...settings.data };
+    await chrome.storage.local.set({ [key]: updated });
+    await this.notifyContentScript('updateSettings', {
+      language: settings.language,
+      settings: updated,
+    }, tabId);
   }
 
   async clearSubtitleData(tabId?: number): Promise<void> {

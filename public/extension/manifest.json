@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "YouTube 字幕翻译",
-  "version": "1.1.20",
+  "version": "1.1.21",
   "description": "YouTube 双语字幕翻译工具",
   "permissions": [
     "activeTab",
@@ -32,7 +32,6 @@
         "content.js"
       ],
       "css": [
-        "subtitle-overlay.css",
         "transcript-styles.css"
       ],
       "run_at": "document_end"

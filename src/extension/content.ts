@@ -4,10 +4,9 @@
  */
 
 import { getDefaultEnglishSettings, getDefaultChineseSettings, getDefaultConfig } from './config';
-import { SubtitleParser } from './subtitle-parser';
 import { getVideoInfo } from './transcript-core';
 import { acquireYouTubeSubtitles } from './youtube-subtitle-fetch';
-import type { SimpleSubtitleEntry, SubtitleStyleSettings, VideoSubtitleData, ASSParseResult } from '../types';
+import type { SimpleSubtitleEntry, SubtitleStyleSettings, VideoSubtitleData } from '../types';
 import {
   isTranslationPublicationForVideo,
   TranslationRunGate,
@@ -50,7 +49,7 @@ interface ChromeMessage {
   translationRunEvent?: TranslationRunEvent;
 }
 
-class YouTubeSubtitleOverlay {
+export class YouTubeSubtitleOverlay {
   private subtitleData: SimpleSubtitleEntry[] = [];
   private englishSubtitles: SimpleSubtitleEntry[] = [];
   private chineseSubtitles: SimpleSubtitleEntry[] = [];
@@ -68,13 +67,7 @@ class YouTubeSubtitleOverlay {
   private enableDPRCompensation: boolean;
   private dprCompensationFactor: number;
 
-  private onTimeUpdate: (() => void) | null = null;
-  private onEnded: (() => void) | null = null;
-  private onPlay: (() => void) | null = null;
-  private onPause: (() => void) | null = null;
-  private onSeeking: (() => void) | null = null;
-  private onSeeked: (() => void) | null = null;
-  private onRateChange: (() => void) | null = null;
+  private videoListeners: AbortController | null = null;
   private resizeObserver: ResizeObserver | null = null;
   private scrollListener: (() => void) | null = null;
   private fullscreenListener: (() => void) | null = null;
@@ -175,9 +168,6 @@ class YouTubeSubtitleOverlay {
         case 'toggleSubtitle':
           this.toggleSubtitle(request.enabled || false);
           break;
-        case 'loadSubtitle':
-          this.loadNewSubtitle(request.subtitleData || []);
-          break;
         case 'loadBilingualSubtitles':
           if (!isTranslationPublicationForVideo(request.videoId, this.getVideoId())) break;
           if (!this.translationRunGate.accepts(request.translationRunId)) break;
@@ -189,9 +179,10 @@ class YouTubeSubtitleOverlay {
         case 'appendBilingualSubtitles':
           if (!isTranslationPublicationForVideo(request.videoId, this.getVideoId())) break;
           if (!this.translationRunGate.accepts(request.translationRunId)) break;
-          this.appendBilingualSubtitles(
+          this.loadBilingualSubtitles(
             request.englishSubtitles || [],
-            request.chineseSubtitles || []
+            request.chineseSubtitles || [],
+            true
           );
           break;
         case 'clearData':
@@ -203,7 +194,6 @@ class YouTubeSubtitleOverlay {
             this.translationRunGate.apply({ type: 'reset' });
             this.clearSubtitleData();
           }
-          break;
           break;
         case 'updateSettings':
           if (request.language && request.settings) {
@@ -440,76 +430,31 @@ class YouTubeSubtitleOverlay {
 
     this.stopSubtitleSyncLoop();
 
-    if (this.onTimeUpdate) {
-      this.currentVideo.removeEventListener('timeupdate', this.onTimeUpdate);
-    }
-    if (this.onEnded) {
-      this.currentVideo.removeEventListener('ended', this.onEnded);
-    }
-    if (this.onPlay) {
-      this.currentVideo.removeEventListener('play', this.onPlay);
-    }
-    if (this.onPause) {
-      this.currentVideo.removeEventListener('pause', this.onPause);
-    }
-    if (this.onSeeking) {
-      this.currentVideo.removeEventListener('seeking', this.onSeeking);
-    }
-    if (this.onSeeked) {
-      this.currentVideo.removeEventListener('seeked', this.onSeeked);
-    }
-    if (this.onRateChange) {
-      this.currentVideo.removeEventListener('ratechange', this.onRateChange);
-    }
-
-    this.onTimeUpdate = () => {
-      if (this.isEnabled) {
-        if (
-          this.englishSubtitles.length > 0 ||
-          this.chineseSubtitles.length > 0 ||
-          this.subtitleData.length > 0
-        ) {
-          this.updateSubtitle();
-        }
-      }
-    };
-
-    this.onEnded = () => {
-      this.stopSubtitleSyncLoop();
-      this.hideSubtitle();
-    };
-
-    this.onPlay = () => {
+    this.videoListeners?.abort();
+    this.videoListeners = new AbortController();
+    const refresh = () => this.updateSubtitle();
+    const resume = () => {
       this.updateSubtitle();
       this.startSubtitleSyncLoop();
     };
-
-    this.onPause = () => {
-      this.stopSubtitleSyncLoop();
-      this.updateSubtitle();
+    const listeners = {
+      timeupdate: refresh,
+      seeking: refresh,
+      play: resume,
+      seeked: resume,
+      ratechange: resume,
+      pause: () => {
+        this.stopSubtitleSyncLoop();
+        this.updateSubtitle();
+      },
+      ended: () => {
+        this.stopSubtitleSyncLoop();
+        this.hideSubtitle();
+      },
     };
-
-    this.onSeeking = () => {
-      this.updateSubtitle();
-    };
-
-    this.onSeeked = () => {
-      this.updateSubtitle();
-      this.startSubtitleSyncLoop();
-    };
-
-    this.onRateChange = () => {
-      this.updateSubtitle();
-      this.startSubtitleSyncLoop();
-    };
-
-    this.currentVideo.addEventListener('timeupdate', this.onTimeUpdate);
-    this.currentVideo.addEventListener('ended', this.onEnded);
-    this.currentVideo.addEventListener('play', this.onPlay);
-    this.currentVideo.addEventListener('pause', this.onPause);
-    this.currentVideo.addEventListener('seeking', this.onSeeking);
-    this.currentVideo.addEventListener('seeked', this.onSeeked);
-    this.currentVideo.addEventListener('ratechange', this.onRateChange);
+    for (const [event, listener] of Object.entries(listeners)) {
+      this.currentVideo.addEventListener(event, listener, { signal: this.videoListeners.signal });
+    }
 
     if (this.isEnabled) {
       this.updateSubtitle();
@@ -941,78 +886,31 @@ class YouTubeSubtitleOverlay {
 
   private loadBilingualSubtitles(
     englishSubtitles: SimpleSubtitleEntry[],
-    chineseSubtitles: SimpleSubtitleEntry[]
+    chineseSubtitles: SimpleSubtitleEntry[],
+    append = false
   ): void {
-    this.englishSubtitles = englishSubtitles || [];
-    this.chineseSubtitles = chineseSubtitles || [];
+    if (append) {
+      this.englishSubtitles.push(...englishSubtitles);
+      this.chineseSubtitles.push(...chineseSubtitles);
+      this.englishSubtitles.sort((a, b) => a.startTime - b.startTime);
+      this.chineseSubtitles.sort((a, b) => a.startTime - b.startTime);
+    } else {
+      this.englishSubtitles = englishSubtitles;
+      this.chineseSubtitles = chineseSubtitles;
+    }
 
-    if (this.englishSubtitles.length > 0 || this.chineseSubtitles.length > 0) {
+    if ((!append || !this.isEnabled) &&
+      (this.englishSubtitles.length > 0 || this.chineseSubtitles.length > 0)) {
       this.isEnabled = true;
-
-      if (!this.currentVideo) {
-        this.currentVideo = document.querySelector('video');
-      }
-
+      this.currentVideo ||= document.querySelector('video');
       if (!this.overlayElement) {
         this.createOverlayElement();
         this.insertOverlayToPage();
       }
-
-      chrome.runtime.sendMessage({
-        action: 'setSubtitleEnabled',
-        enabled: true,
-      });
-
-      if (this.currentVideo && this.overlayElement) {
-        this.setupVideoListeners();
-        this.updateSubtitle();
-      }
+      void chrome.runtime.sendMessage({ action: 'setSubtitleEnabled', enabled: true });
+      this.setupVideoListeners();
     }
-  }
-
-  private appendBilingualSubtitles(
-    englishSubtitles: SimpleSubtitleEntry[],
-    chineseSubtitles: SimpleSubtitleEntry[]
-  ): void {
-    // 追加字幕数据
-    this.englishSubtitles.push(...(englishSubtitles || []));
-    this.chineseSubtitles.push(...(chineseSubtitles || []));
-
-    // 按时间排序确保顺序正确
-    this.englishSubtitles.sort((a, b) => a.startTime - b.startTime);
-    this.chineseSubtitles.sort((a, b) => a.startTime - b.startTime);
-
-    // 如果是首次追加，需要初始化
-    if (!this.isEnabled && (this.englishSubtitles.length > 0 || this.chineseSubtitles.length > 0)) {
-      this.isEnabled = true;
-
-      if (!this.currentVideo) {
-        this.currentVideo = document.querySelector('video');
-      }
-
-      if (!this.overlayElement) {
-        this.createOverlayElement();
-        this.insertOverlayToPage();
-      }
-
-      chrome.runtime.sendMessage({
-        action: 'setSubtitleEnabled',
-        enabled: true,
-      });
-
-      if (this.currentVideo && this.overlayElement) {
-        this.setupVideoListeners();
-      }
-    }
-
-    // 更新当前显示的字幕
-    if (this.currentVideo && this.overlayElement) {
-      this.updateSubtitle();
-    }
-  }
-
-  private loadNewSubtitle(subtitleData: SimpleSubtitleEntry[]): void {
-    this.subtitleData = subtitleData;
+    this.updateSubtitle();
   }
 
   private clearSubtitleData(): void {
@@ -1154,65 +1052,6 @@ class YouTubeSubtitleOverlay {
     this.currentVideoId = videoId;
 
     await this.loadSubtitleData();
-  }
-
-  async processAutoLoadedSubtitle(
-    content: string,
-    info: { format: string; filename: string }
-  ): Promise<void> {
-    try {
-      const format = info.format.toLowerCase();
-      const currentVideoId = this.getVideoId();
-
-      if (!currentVideoId) {
-        return;
-      }
-
-      if (format === '.ass') {
-        const assResult: ASSParseResult = SubtitleParser.parseASS(content);
-
-        if (assResult.english.length > 0 || assResult.chinese.length > 0) {
-          this.englishSubtitles = assResult.english;
-          this.chineseSubtitles = assResult.chinese;
-
-          await chrome.runtime.sendMessage({
-            action: 'saveVideoSubtitles',
-            videoId: currentVideoId,
-            englishSubtitles: assResult.english,
-            chineseSubtitles: assResult.chinese,
-          });
-        }
-      } else if (format === '.srt') {
-        const subtitleData = SubtitleParser.parseSRT(content);
-
-        if (subtitleData.length > 0) {
-          this.subtitleData = subtitleData;
-
-          await chrome.runtime.sendMessage({
-            action: 'saveVideoSubtitles',
-            videoId: currentVideoId,
-            subtitleData,
-          });
-        }
-      }
-
-      if (
-        this.englishSubtitles.length > 0 ||
-        this.chineseSubtitles.length > 0 ||
-        this.subtitleData.length > 0
-      ) {
-        this.isEnabled = true;
-
-        chrome.runtime.sendMessage({
-          action: 'setSubtitleEnabled',
-          enabled: true,
-        });
-
-        if (this.currentVideo) {
-          this.updateSubtitle();
-        }
-      }
-    } catch {}
   }
 }
 

@@ -41,7 +41,6 @@ function ensureStaticFiles() {
     'popup.html',
     'popup.js',
     'popup.css',
-    'subtitle-overlay.css',
   ];
 
   const missingFiles = requiredFiles.filter((file) => !fs.existsSync(path.join(staticDir, file)));

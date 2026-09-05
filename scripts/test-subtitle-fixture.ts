@@ -9,7 +9,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { normalizeSubtitleTiming } from '../src/core/subtitle-acquisition.js';
-import { SubtitleParser } from '../src/extension/subtitle-parser.js';
+import { SubtitleParser } from '../src/core/subtitle-parser.js';
 
 const DEFAULT_FIXTURE = resolve(
   process.cwd(),
