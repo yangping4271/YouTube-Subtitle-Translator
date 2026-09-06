@@ -173,6 +173,52 @@ describe('BrowserTranslationCoordinator interface', () => {
     });
   });
 
+  it('discardSettledProgress 清掉失败态', async () => {
+    const { store, session } = createHarness();
+    await store.saveProgress({
+      isTranslating: false,
+      error: 'API 鉴权失败',
+      videoId: 'video-old',
+      timestamp: 1,
+    });
+    await session.discardSettledProgress();
+    expect(store.clearProgress).toHaveBeenCalledOnce();
+    expect(await session.status({ videoId: 'video-old' })).toMatchObject({
+      isTranslating: false,
+      progress: null,
+    });
+  });
+
+  it('discardSettledProgress 清掉完成态，但保留进行中的任务', async () => {
+    const { store, session } = createHarness();
+    await store.saveProgress({
+      isTranslating: false,
+      completed: true,
+      videoId: 'video-old',
+      timestamp: 2,
+    });
+    await session.discardSettledProgress();
+    expect(store.clearProgress).toHaveBeenCalledOnce();
+  });
+
+  it('discardSettledProgress 不打断进行中的翻译', async () => {
+    const { store, session } = createHarness();
+    await store.saveProgress({
+      isTranslating: true,
+      videoId: 'video-live',
+      step: 'translate',
+      current: 1,
+      total: 2,
+      timestamp: Date.now(),
+    });
+    await session.discardSettledProgress();
+    expect(store.clearProgress).not.toHaveBeenCalled();
+    expect(await session.status({ videoId: 'video-live' })).toMatchObject({
+      isTranslating: true,
+      progress: expect.objectContaining({ videoId: 'video-live' }),
+    });
+  });
+
   it('翻译失败时会取消已进入异步 publisher 的 partial 并清理当前 run', async () => {
     const { executor, store, publisher, session } = createHarness();
     let partialStartedResolve: (() => void) | undefined;

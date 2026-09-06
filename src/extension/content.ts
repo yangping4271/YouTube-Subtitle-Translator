@@ -97,10 +97,18 @@ export class YouTubeSubtitleOverlay {
 
   private init(): void {
     this.createOverlayElement();
+    void this.discardSettledTranslationProgress();
     this.observeVideoChanges();
     this.loadSubtitleData();
     this.bindMessageListener();
     this.bindWindowMessageListener();
+  }
+
+  private async discardSettledTranslationProgress(): Promise<void> {
+    try {
+      if (!chrome.runtime?.id) return;
+      await chrome.runtime.sendMessage({ action: 'clearSettledTranslationProgress' });
+    } catch {}
   }
 
   private async startTranslationFromPage(): Promise<void> {
@@ -394,7 +402,8 @@ export class YouTubeSubtitleOverlay {
     const video = document.querySelector('video') as HTMLVideoElement;
     const videoElementChanged = video && video !== this.currentVideo;
     const newVideoId = this.getVideoId();
-    const videoIdChanged = newVideoId && newVideoId !== this.currentVideoId;
+    const videoIdChanged = Boolean(newVideoId && newVideoId !== this.currentVideoId);
+    const previousVideoId = this.currentVideoId;
 
     if (videoElementChanged) {
       this.currentVideo = video;
@@ -408,6 +417,9 @@ export class YouTubeSubtitleOverlay {
       this.englishSubtitles = [];
       this.chineseSubtitles = [];
       this.loadSubtitleData();
+    }
+    if (videoIdChanged && previousVideoId) {
+      void this.discardSettledTranslationProgress();
     }
   }
 

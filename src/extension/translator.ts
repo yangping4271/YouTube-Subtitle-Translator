@@ -438,6 +438,23 @@ export class BrowserTranslationCoordinator {
     }
   }
 
+  /**
+   * 页面刷新或切换视频后，清掉已经结束的失败/完成态，避免残留到下一个观看会话。
+   * 进行中的任务和待恢复 job 保持不动。
+   */
+  async discardSettledProgress(): Promise<void> {
+    try {
+      if (this.activeRun) return;
+      const pendingJob = await this.store.getPendingJob();
+      if (pendingJob) return;
+      const progress = await this.store.getProgress();
+      if (!progress || progress.isTranslating) return;
+      await this.store.clearProgress();
+    } catch (error) {
+      throw new Error(`清理已结束的翻译状态失败: ${extractErrorMessage(error)}`);
+    }
+  }
+
   async status(request: { videoId?: string } = {}): Promise<BrowserTranslationStatus> {
     try {
       let progress = await this.store.getProgress();

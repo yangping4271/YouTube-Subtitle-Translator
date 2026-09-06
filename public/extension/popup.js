@@ -241,7 +241,7 @@ class PopupController {
             this.showApiStatus('success', '已恢复上次填写的信息，请点击保存');
         }
 
-        this.getCurrentVideoInfo();
+        await this.getCurrentVideoInfo();
         this.checkTranslationProgress();
         this.startProgressListener();
         await this.updateTranslateButton();
@@ -759,6 +759,8 @@ class PopupController {
             videoIdElement.title = videoId || '';
         }
 
+        if (this.isTranslating) return;
+
         if (statusElement) {
             statusElement.textContent = status || '等待检测';
 
@@ -1176,12 +1178,25 @@ class PopupController {
                 this.isTranslating = true;
                 this.showTranslationProgress(progress);
                 this.startProgressListener();
-            } else if (progress && progress.error) {
-                this.showTranslationError(progress.error);
-            } else if (progress && progress.completed) {
-                await this.showTranslationCompleted();
             }
         } catch {}
+    }
+
+    setLoadStatus(text, variant = '', detail = '') {
+        const statusElement = document.getElementById('autoLoadStatus');
+        if (!statusElement) return;
+        const className = variant ? `load-status ${variant}` : 'load-status';
+        const title = detail || text;
+        if (
+            statusElement.textContent === text
+            && statusElement.className === className
+            && statusElement.title === title
+        ) {
+            return;
+        }
+        statusElement.textContent = text;
+        statusElement.className = className;
+        statusElement.title = title;
     }
 
     showTranslationProgress(progress) {
@@ -1190,7 +1205,6 @@ class PopupController {
         const progressRow = document.getElementById('progressRow');
         const progressFill = document.getElementById('progressFill');
         const progressText = document.getElementById('progressText');
-        const autoLoadStatus = document.getElementById('autoLoadStatus');
 
         if (translateBtn) {
             translateBtn.disabled = false; // 允许点击取消
@@ -1206,37 +1220,22 @@ class PopupController {
             : 0;
         const percent = total > 0 ? Math.round((current / total) * 100) : 0;
         if (progressFill) progressFill.style.width = percent + '%';
-
-        const stepNames = {
-            'start': '准备翻译...',
-            'resume': '恢复翻译中...',
-            'split': '断句优化中...',
-            'summary': '内容总结中...',
-            'translate': '翻译中...',
-            'complete': '完成'
-        };
         if (progressText) progressText.textContent = `${percent}%`;
-        if (autoLoadStatus) autoLoadStatus.textContent = stepNames[progress.step] || '翻译中...';
+        this.setLoadStatus('翻译中', 'translating');
     }
 
-    showTranslationError(error) {
-        const autoLoadStatus = document.getElementById('autoLoadStatus');
-        if (autoLoadStatus) {
-            autoLoadStatus.textContent = `翻译失败：${formatPopupError(error)}`;
-            autoLoadStatus.className = 'load-status error';
-        }
+    showTranslationError(error, { notify = true } = {}) {
+        const detail = formatPopupError(error);
+        this.setLoadStatus('失败', 'error', detail);
+        if (notify) Toast.error(error);
         this.resetTranslationButton();
         void this.updateTranslateButton();
     }
 
     async showTranslationCompleted(options = {}) {
-        const autoLoadStatus = document.getElementById('autoLoadStatus');
         const progressFill = document.getElementById('progressFill');
         const progressText = document.getElementById('progressText');
-        if (autoLoadStatus) {
-            autoLoadStatus.textContent = '翻译完成!';
-            autoLoadStatus.className = 'load-status success';
-        }
+        this.setLoadStatus('完成', 'success');
         if (progressFill) progressFill.style.width = '100%';
         if (progressText) progressText.textContent = '100%';
 
@@ -1271,6 +1270,8 @@ class PopupController {
                 chrome.storage.onChanged.removeListener(this._progressListener);
                 this._progressListener = null;
                 await this.showTranslationCompleted({ enableSubtitle: true });
+            } else if (!this.isTranslating) {
+                await this.getCurrentVideoInfo();
             }
         };
 
@@ -1309,12 +1310,7 @@ class PopupController {
         if (progressFill) progressFill.style.width = '0%';
         if (progressText) progressText.textContent = '0%';
 
-        // 更新状态显示
-        const autoLoadStatus = document.getElementById('autoLoadStatus');
-        if (autoLoadStatus) {
-            autoLoadStatus.textContent = '翻译已取消';
-            autoLoadStatus.className = 'load-status';
-        }
+        this.setLoadStatus('已取消');
 
         // 重置 UI
         this._isCancelling = false;
@@ -1378,11 +1374,7 @@ class PopupController {
         // 检查API配置
         this.collectActiveProviderFromUI();
         if (!this.apiConfig.openaiBaseUrl) {
-            const autoLoadStatus = document.getElementById('autoLoadStatus');
-            if (autoLoadStatus) {
-                autoLoadStatus.textContent = '请先配置API地址';
-                autoLoadStatus.className = 'load-status error';
-            }
+            this.setLoadStatus('需配置API', 'error');
             this.switchTab('api');
             return;
         }
@@ -1391,11 +1383,7 @@ class PopupController {
         this._translationOperation = operation;
         const isCurrent = () => this._translationOperation === operation;
         const translateBtn = document.getElementById('translateBtn');
-
         const progressRow = document.getElementById('progressRow');
-        const progressFill = document.getElementById('progressFill');
-        const progressText = document.getElementById('progressText');
-        const autoLoadStatus = document.getElementById('autoLoadStatus');
 
         try {
             this.isTranslating = true;
@@ -1408,10 +1396,11 @@ class PopupController {
             }
 
             if (progressRow) progressRow.style.display = 'flex';
-            if (autoLoadStatus) {
-                autoLoadStatus.textContent = '获取字幕中...';
-                autoLoadStatus.className = 'load-status translating';
-            }
+            const progressFill = document.getElementById('progressFill');
+            const progressText = document.getElementById('progressText');
+            if (progressFill) progressFill.style.width = '0%';
+            if (progressText) progressText.textContent = '0%';
+            this.setLoadStatus('翻译中', 'translating');
 
             await this.requestApiHostPermission(
                 this.getActiveApiProvider() || this.apiConfig.openaiBaseUrl
@@ -1427,8 +1416,6 @@ class PopupController {
             if (!subtitles || subtitles.length === 0) {
                 throw new Error('无法获取YouTube字幕，请确保视频有字幕');
             }
-
-            if (autoLoadStatus) autoLoadStatus.textContent = `获取到 ${subtitles.length} 条字幕，准备翻译...`;
 
             // 获取视频信息（标题、描述等）
             const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -1473,20 +1460,11 @@ class PopupController {
                 throw new Error(response?.error || '启动翻译失败');
             }
 
-            // 3. 启动进度监听（监听 storage 变化来更新 UI）
             this.startProgressListener();
-
-            // popup 不再等待翻译完成，用户可以关闭 popup
-            if (autoLoadStatus) autoLoadStatus.textContent = '翻译已在后台运行...';
-            return; // 翻译结果由 storage 监听器处理
+            return;
         } catch (error) {
             if (!isCurrent()) return;
-            if (autoLoadStatus) {
-                autoLoadStatus.textContent = `翻译失败：${formatPopupError(error)}`;
-                autoLoadStatus.className = 'load-status error';
-            }
-            this.resetTranslationButton();
-            await this.updateTranslateButton();
+            this.showTranslationError(error);
         }
     }
 

@@ -1245,8 +1245,7 @@ body::before {
     color: #b33939 !important;
 }
 
-/* 状态文本始终留在卡片内，长错误可滚动阅读。 */
-#autoLoadStatus,
+/* 字幕状态保持单行；长错误放到 toast。 */
 #apiStatusText,
 .toast {
     min-width: 0;
@@ -1255,14 +1254,4 @@ body::before {
     overflow-wrap: anywhere;
     white-space: normal;
     line-height: 1.6;
-}
-
-.info-row:has(#autoLoadStatus.error) {
-    align-items: flex-start;
-}
-
-#autoLoadStatus.error {
-    text-align: left;
-    padding: 6px 10px;
-    border-radius: 8px;
 }

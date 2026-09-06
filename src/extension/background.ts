@@ -345,6 +345,11 @@ class SubtitleExtensionBackground {
           break;
         }
 
+        case 'clearSettledTranslationProgress':
+          await this.translationCoordinator.discardSettledProgress();
+          sendResponse({ success: true });
+          break;
+
         default:
           sendResponse({ success: false, error: '未知操作' });
       }
