@@ -752,6 +752,36 @@ describe('OpenAI-compatible config', () => {
     expect(body).not.toHaveProperty('reasoning_effort');
   });
 
+  it('记录关闭请求及服务端报告的推理 token 用量', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const fetchMock = vi.fn().mockImplementation(async () => ({
+      ok: true,
+      json: async () => ({
+        choices: [{ message: { content: 'ok' } }],
+        usage: { completion_tokens_details: { reasoning_tokens: fetchMock.mock.calls.length === 1 ? 0 : 12 } },
+      }),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    try {
+      const client = new OpenAIClient(createConfig({
+        openaiBaseUrl: 'https://openrouter.ai/api/v1',
+        providerType: 'openrouter',
+        model: 'openai/gpt-6-luna',
+      }));
+      await client.callChat('system', 'user');
+      await client.callChat('system', 'user');
+
+      const output = log.mock.calls.flat().join(' ');
+      expect(output).toContain(
+        '思考模式 (openai/gpt-6-luna): 已请求关闭 (reasoning.effort=none)，请求成功；响应报告推理 token=0'
+      );
+      expect(output).toContain('响应报告推理 token=12，本次仍有推理');
+    } finally {
+      log.mockRestore();
+    }
+  });
+
   it('旧配置不能通过 disableThinking false 重新开启思考模式', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
@@ -798,6 +828,7 @@ describe('OpenAI-compatible config', () => {
   ] as const)(
     '%s 不支持关闭参数时移除该参数并按默认模式继续',
     async (_name, openaiBaseUrl, providerType, errorMessage, parameterName) => {
+      const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
       const fetchMock = vi.fn()
         .mockResolvedValueOnce({
           ok: false,
@@ -820,16 +851,23 @@ describe('OpenAI-compatible config', () => {
         providerType,
       }));
 
-      await expect(client.callChat('system', 'user'))
-        .resolves.toBe('translated with default thinking');
-      expect(fetchMock).toHaveBeenCalledTimes(2);
+      try {
+        await expect(client.callChat('system', 'user'))
+          .resolves.toBe('translated with default thinking');
+        expect(fetchMock).toHaveBeenCalledTimes(2);
 
-      const firstBody = JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string);
-      const fallbackBody = JSON.parse(fetchMock.mock.calls[1]?.[1]?.body as string);
-      expect(firstBody).toHaveProperty(parameterName);
-      expect(fallbackBody).not.toHaveProperty('reasoning_effort');
-      expect(fallbackBody).not.toHaveProperty('reasoning');
-      expect(fallbackBody).not.toHaveProperty('thinking');
+        const firstBody = JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string);
+        const fallbackBody = JSON.parse(fetchMock.mock.calls[1]?.[1]?.body as string);
+        expect(firstBody).toHaveProperty(parameterName);
+        expect(fallbackBody).not.toHaveProperty('reasoning_effort');
+        expect(fallbackBody).not.toHaveProperty('reasoning');
+        expect(fallbackBody).not.toHaveProperty('thinking');
+        expect(log.mock.calls.flat().join(' ')).toContain(
+          '关闭参数不受支持，已按服务端默认模式重试；未返回推理 token 用量，实际状态未知'
+        );
+      } finally {
+        log.mockRestore();
+      }
     }
   );
 

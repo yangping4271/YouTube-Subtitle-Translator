@@ -324,6 +324,30 @@ describe('mergeSegmentsWithinBatch', () => {
     expect(result).toEqual(['Hello world', 'Next sentence here.']);
   });
 
+  it('模型在分隔符旁调整空格时仍保留断句边界', async () => {
+    const source = 'Hello, world and now next.';
+    const result = await splitByLLM(
+      source,
+      { callChat: async () => 'Hello , world<br>and now next.' },
+      config
+    );
+
+    expect(result).toEqual(['Hello , world', 'and now next.']);
+  });
+
+  it('模型漏词时使用原文分段，不把整批内容显示为一条字幕', async () => {
+    const source = Array.from({ length: 60 }, (_, index) => `word${index}`).join(' ');
+    const result = await splitByLLM(
+      source,
+      { callChat: async () => source.replace('word30', 'changed').replace(/word20 /, 'word20<br>') },
+      config
+    );
+
+    expect(result.length).toBeGreaterThan(1);
+    expect(result.every(segment => segment.split(/\s+/).length <= 28)).toBe(true);
+    expect(result.join(' ')).toBe(source);
+  });
+
   it('跨时间间隔时按源内容拆开，不复制整个 LLM 句子', async () => {
     const wordSegments: SubtitleEntry[] = [
       { index: 1, startTime: 0, endTime: 100, text: 'alpha' },

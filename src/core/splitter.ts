@@ -686,9 +686,10 @@ export async function splitByLLM(
     .map(segment => segment.replace(/\s+/g, ' ').trim())
     .filter(segment => segment.length > 0);
 
-  const normalizeIntegrityText = (value: string): string =>
-    value.replace(/\s+/g, ' ').trim();
-  if (normalizeIntegrityText(sentences.join(' ')) !== normalizeIntegrityText(text)) {
+  const preservesSourceTokens = (parts: string[]): boolean =>
+    tokenizeComparableText(parts.join(' ')).join('\u0000') === tokenizeComparableText(text).join('\u0000');
+  if (!preservesSourceTokens(sentences)) {
+    logger.info(`${batchPrefix}模型断句与原文不一致，改用原文断句`);
     sentences = [text];
   }
 
@@ -773,8 +774,13 @@ export async function splitByLLM(
   }
 
   sentences = newSentences;
-  if (normalizeIntegrityText(sentences.join(' ')) !== normalizeIntegrityText(text)) {
-    sentences = [text];
+  if (!preservesSourceTokens(sentences)) {
+    logger.info(`${batchPrefix}断句后文本与原文不一致，改用原文分段`);
+    sentences = splitByEndMarks(text).flatMap(segment =>
+      countWords(segment) > toleranceThreshold
+        ? fallbackSplit(segment, maxWordCountEnglish, warningThreshold)
+        : [segment]
+    );
   }
 
   // 记录统计信息

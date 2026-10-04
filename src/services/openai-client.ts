@@ -9,9 +9,11 @@ import {
   isOptionalRequestParameterUnsupportedError,
 } from '../utils/error-handler.js';
 import { assertRemoteApiBaseUrl, normalizeApiBaseUrl } from '../utils/api-url.js';
+import { setupLogger } from '../utils/logger.js';
 import type { ChatOptions, TranslatorConfig } from '../types/index.js';
 
 type ThinkingDisableMode = 'deepseek' | 'openrouter' | 'openai-compatible';
+const logger = setupLogger('openai-client');
 
 /**
  * OpenAI API 客户端
@@ -142,6 +144,11 @@ export class OpenAIClient {
     if (thinkingDisableMode === 'openai-compatible') {
       body.reasoning_effort = 'none';
     }
+    const thinkingParameter = thinkingDisableMode === 'deepseek'
+      ? 'thinking.type=disabled'
+      : thinkingDisableMode === 'openrouter'
+        ? 'reasoning.effort=none'
+        : 'reasoning_effort=none';
 
     // 使用 withRetry 包装 API 调用，自动重试 2 次
     return withRetry(
@@ -175,12 +182,26 @@ export class OpenAIClient {
 
             const data = await response.json() as {
               choices?: Array<{ message?: { content?: string } }>;
+              usage?: { completion_tokens_details?: { reasoning_tokens?: number } };
             };
 
             const content = data.choices?.[0]?.message?.content;
             if (!content) {
               throw new Error('API 返回内容为空');
             }
+
+            const disableParameterPresent = thinkingDisableMode === 'deepseek'
+              ? 'thinking' in body
+              : thinkingDisableMode === 'openrouter'
+                ? 'reasoning' in body
+                : 'reasoning_effort' in body;
+            const reasoningTokens = data.usage?.completion_tokens_details?.reasoning_tokens;
+            logger.info(`思考模式 (${this.model}): ${disableParameterPresent
+              ? `已请求关闭 (${thinkingParameter})，请求成功`
+              : `关闭参数不受支持，已按服务端默认模式重试`
+            }；${reasoningTokens === undefined
+              ? '未返回推理 token 用量，实际状态未知'
+              : `响应报告推理 token=${reasoningTokens}${reasoningTokens > 0 ? '，本次仍有推理' : ''}`}`);
 
             return content;
           };
