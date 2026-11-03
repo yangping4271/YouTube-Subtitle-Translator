@@ -84,3 +84,29 @@ it('草稿写入失败时不弹出权限窗口，保留当前表单', async () =
   expect(h.request).not.toHaveBeenCalled();
   expect(h.controller.newApiProviderDraft.llmModel).toBe('test-model');
 });
+
+it('删除自定义供应商后立即持久化，重开 popup 不再出现', async () => {
+  const h = harness();
+  h.stored.apiConfig = apiConfig.normalizeApiConfig({
+    schemaVersion: apiConfig.API_CONFIG_SCHEMA_VERSION,
+    activeProviderId: 'custom-test',
+    providers: [{
+      id: 'custom-test',
+      name: 'Test provider',
+      openaiBaseUrl: 'https://example.com/v1',
+      openaiApiKey: 'test-only-key',
+      llmModel: 'test-model',
+    }],
+  });
+
+  const controller = h.create();
+  await controller.deleteActiveApiProvider();
+
+  expect(h.stored.apiConfig.activeProviderId).toBeUndefined();
+  expect(h.stored.apiConfig.providers?.some((provider: { id: string }) => provider.id === 'custom-test')).toBe(false);
+
+  const reopened = h.create();
+  await reopened.loadApiConfig();
+  expect(reopened.apiConfig.providers?.some((provider: { id: string }) => provider.id === 'custom-test')).toBe(false);
+  expect(reopened.getActiveApiProvider()).toBeNull();
+});

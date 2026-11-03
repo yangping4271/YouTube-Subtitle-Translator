@@ -1025,9 +1025,9 @@ class PopupController {
         this.loadApiConfigToUI();
     }
 
-    deleteActiveApiProvider() {
+    async deleteActiveApiProvider() {
         const currentId = this.apiConfig.activeProviderId;
-        if (this.isDefaultApiProvider(currentId)) {
+        if (!currentId || this.isDefaultApiProvider(currentId)) {
             return;
         }
 
@@ -1035,6 +1035,15 @@ class PopupController {
         this.apiConfig.activeProviderId = '';
         this.apiConfig.requiresProviderSelection = true;
         this.syncActiveProviderFields();
+
+        try {
+            await this.persistApiConfig();
+            await chrome.storage.local.remove('apiPermissionDraft');
+            this.hasApiPermissionDraft = false;
+            Toast.success('供应商已删除');
+        } catch (error) {
+            Toast.error('删除失败: ' + error.message);
+        }
         this.loadApiConfigToUI();
     }
 
