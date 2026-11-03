@@ -23,6 +23,7 @@ export class OpenAIClient {
   private apiKey: string;
   private model: string;
   private providerType: string;
+  private readonly opencodeSessionId = `youtube-subtitle-${crypto.randomUUID()}`;
 
   constructor(config: TranslatorConfig) {
     assertRemoteApiBaseUrl(config.openaiBaseUrl);
@@ -57,6 +58,15 @@ export class OpenAIClient {
           .filter(Boolean)
       );
     }
+  }
+
+  /**
+   * OpenCode Go 用 x-opencode-session 做路由和缓存。
+   * 优先看地址，避免存储的 providerType 与实际端点不一致。
+   */
+  private isOpenCodeEndpoint(): boolean {
+    return this.providerType === 'opencode'
+      || this.getHostname().endsWith('opencode.ai');
   }
 
   /**
@@ -166,6 +176,10 @@ export class OpenAIClient {
           };
           if (this.apiKey) {
             headers.Authorization = `Bearer ${this.apiKey}`;
+          }
+          if (this.isOpenCodeEndpoint()) {
+            // 浏览器禁止改写 User-Agent，只能发送网关要求的会话头。
+            headers['x-opencode-session'] = this.opencodeSessionId;
           }
 
           const sendRequest = async (): Promise<string> => {

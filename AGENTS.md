@@ -32,7 +32,7 @@
 - 保留字幕原文中的真实重复、顺序和时间；只能清理明确的重复记录、空白及非语音标注。
 - SRV3 词级字幕必须保持原词序和时间，不能信任会改写原文的模型输出。
 - 翻译会话必须保持有序最终结果、并发上限、取消传播、partial publication 和跨 Service Worker 恢复语义。
-- API 配置继续支持 OpenAI、OpenRouter、DeepSeek 和 OpenAI-compatible endpoint；空 API Key 可用于不需要鉴权的兼容服务。
+- API 配置继续支持 OpenAI、OpenRouter、DeepSeek、OpenCode Go 和 OpenAI-compatible endpoint；空 API Key 可用于不需要鉴权的兼容服务。
 - OpenAI、OpenRouter 和 DeepSeek 内置供应商使用固定 host permission；自定义 API 使用运行时 optional host permission。修改权限后同时检查 manifest、popup 授权流程和打包结果。
 
 ## 测试

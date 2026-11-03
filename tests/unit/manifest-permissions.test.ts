@@ -17,6 +17,7 @@ describe('manifest API permissions', () => {
       'https://api.openai.com/*',
       'https://openrouter.ai/*',
       'https://api.deepseek.com/*',
+      'https://opencode.ai/*',
     ]));
     expect(manifest.optional_host_permissions).toContain('https://*/*');
   });

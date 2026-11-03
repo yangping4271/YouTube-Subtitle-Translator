@@ -51,6 +51,16 @@ export const DEFAULT_API_PROVIDERS: ApiProviderConfig[] = [
     threadNum: DEFAULT_CONCURRENCY,
     disableThinking: true,
   },
+  {
+    id: 'opencode',
+    name: 'OpenCode Go',
+    providerType: 'opencode',
+    openaiBaseUrl: 'https://opencode.ai/zen/go/v1',
+    openaiApiKey: '',
+    llmModel: 'deepseek-v4.1-flash',
+    threadNum: DEFAULT_CONCURRENCY,
+    disableThinking: true,
+  },
 ];
 
 export const DEFAULT_API_PROVIDER_IDS = DEFAULT_API_PROVIDERS.map(provider => provider.id);
@@ -93,6 +103,7 @@ function inferProviderType(baseUrl = ''): ApiProviderType {
   const normalizedBaseUrl = baseUrl.toLowerCase();
   const { hostname, pathParts } = getUrlParts(baseUrl);
   if (hostname.endsWith('openrouter.ai') || pathParts.has('openrouter') || normalizedBaseUrl.includes('openrouter.ai')) return 'openrouter';
+  if (hostname.endsWith('opencode.ai') || normalizedBaseUrl.includes('opencode.ai')) return 'opencode';
   if (hostname.endsWith('deepseek.com') || normalizedBaseUrl.includes('deepseek.com')) return 'deepseek';
   if (hostname === 'api.openai.com' || normalizedBaseUrl.includes('api.openai.com')) return 'openai';
   return 'custom';
@@ -126,7 +137,8 @@ function mergeDefaultProviders(configuredProviders: ApiProviderConfig[]): ApiPro
   const defaultProviders = DEFAULT_API_PROVIDERS.map(defaultProvider => ({
     ...defaultProvider,
     openaiApiKey: configuredById.get(defaultProvider.id)?.openaiApiKey || '',
-    llmModel: configuredById.get(defaultProvider.id)?.llmModel || '',
+    // 内置供应商可以带默认模型；用户只填 API Key 即可使用，模型仍可改。
+    llmModel: configuredById.get(defaultProvider.id)?.llmModel || defaultProvider.llmModel,
     threadNum: configuredById.get(defaultProvider.id)?.threadNum ?? defaultProvider.threadNum,
   }));
   const customProviders = configuredProviders.filter(
@@ -220,7 +232,7 @@ export function migrateApiConfig(
 
   const isLegacyImplicitDefaultSelection = schemaVersion < PROVIDER_SELECTION_SCHEMA_VERSION
     && apiConfig?.activeProviderId === 'openai'
-    && configuredProviders.length === DEFAULT_API_PROVIDERS.length
+    && configuredProviders.length > 0
     && configuredProviders.every(provider => isDefaultApiProviderId(provider.id))
     && configuredProviders.every(provider => !provider.openaiApiKey);
   const hasActiveProvider = Boolean(

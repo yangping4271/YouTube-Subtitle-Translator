@@ -48,7 +48,7 @@ export interface PreSplitSentence {
 }
 
 /** API 配置 */
-export type ApiProviderType = 'openai' | 'openrouter' | 'deepseek' | 'custom';
+export type ApiProviderType = 'openai' | 'openrouter' | 'deepseek' | 'opencode' | 'custom';
 
 export interface ApiProviderConfig {
   id: string;

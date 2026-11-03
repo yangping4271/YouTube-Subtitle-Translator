@@ -44,7 +44,7 @@ describe('OpenAI-compatible config', () => {
     expect(errors).toEqual([]);
   });
 
-  it('初始配置不预选模型，三个内置模型保持固定且只保留已保存的 API Key', () => {
+  it('初始配置不预选模型，内置模型保持固定且只保留已保存的 API Key', () => {
     const config = normalizeApiConfig({
       providers: [{
         id: 'openai',
@@ -298,6 +298,7 @@ describe('OpenAI-compatible config', () => {
       'openai',
       'openrouter',
       'deepseek',
+      'opencode',
       'local',
     ]);
     expect(config.activeProviderId).toBe('local');
@@ -871,6 +872,89 @@ describe('OpenAI-compatible config', () => {
     }
   );
 
+  it('OpenCode Go 内置供应商只填 Key 即可使用，模型仍可覆盖', () => {
+    const defaults = normalizeApiConfig({});
+    const opencode = defaults.providers?.find(provider => provider.id === 'opencode');
+    expect(opencode).toMatchObject({
+      name: 'OpenCode Go',
+      providerType: 'opencode',
+      openaiBaseUrl: 'https://opencode.ai/zen/go/v1',
+      llmModel: 'deepseek-v4.1-flash',
+    });
+
+    const configured = normalizeApiConfig({
+      schemaVersion: 5,
+      activeProviderId: 'opencode',
+      providers: [{
+        ...opencode!,
+        openaiApiKey: 'oc_sk_test',
+        llmModel: 'glm-5.3-flash',
+      }],
+    });
+    expect(configured.activeProviderId).toBe('opencode');
+    expect(configured.providerType).toBe('opencode');
+    expect(configured.llmModel).toBe('glm-5.3-flash');
+    expect(configured.openaiApiKey).toBe('oc_sk_test');
+  });
+
+  it('opencode.ai 地址的供应商推断为 opencode', () => {
+    const config = normalizeApiConfig({
+      activeProviderId: 'opencode-custom',
+      providers: [{
+        id: 'opencode-custom',
+        name: 'OpenCode Go',
+        openaiBaseUrl: 'https://opencode.ai/zen/go/v1',
+        openaiApiKey: 'key',
+        llmModel: 'deepseek-v4.1-flash',
+      }],
+    });
+
+    expect(config.providerType).toBe('opencode');
+  });
+
+  it('OpenCode Go 端点发送稳定的会话头', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [{ message: { content: 'translated content' } }],
+      }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const client = new OpenAIClient(createConfig({
+      openaiBaseUrl: 'https://opencode.ai/zen/go/v1',
+      model: 'deepseek-v4.1-flash',
+      providerType: 'opencode',
+    }));
+    await client.callChat('system', 'user');
+    await client.callChat('system', 'user');
+
+    const firstHeaders = fetchMock.mock.calls[0]?.[1]?.headers as Record<string, string>;
+    const secondHeaders = fetchMock.mock.calls[1]?.[1]?.headers as Record<string, string>;
+    expect(firstHeaders['x-opencode-session']).toMatch(/^youtube-subtitle-/);
+    expect(secondHeaders['x-opencode-session']).toBe(firstHeaders['x-opencode-session']);
+  });
+
+  it('非 OpenCode 端点不发送会话头', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [{ message: { content: 'translated content' } }],
+      }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const client = new OpenAIClient(createConfig({
+      openaiBaseUrl: 'https://api.deepseek.com',
+      model: 'deepseek-v4-flash',
+      providerType: 'deepseek',
+    }));
+    await client.callChat('system', 'user');
+
+    const headers = fetchMock.mock.calls[0]?.[1]?.headers as Record<string, string>;
+    expect(headers).not.toHaveProperty('x-opencode-session');
+  });
+
   it('旧版单 API 字段不再迁移，也不预选内置供应商', () => {
     const config = normalizeApiConfig({
       openaiBaseUrl: 'http://192.168.31.18:8012/v1',
@@ -882,8 +966,8 @@ describe('OpenAI-compatible config', () => {
     });
 
     expect(config.activeProviderId).toBeUndefined();
-    expect(config.providers).toHaveLength(3);
-    expect(config.providers?.map(provider => provider.id)).toEqual(['openai', 'openrouter', 'deepseek']);
+    expect(config.providers).toHaveLength(4);
+    expect(config.providers?.map(provider => provider.id)).toEqual(['openai', 'openrouter', 'deepseek', 'opencode']);
     expect(config).toMatchObject({
       openaiBaseUrl: '',
       llmModel: '',
@@ -963,7 +1047,7 @@ describe('OpenAI-compatible config', () => {
       ],
     });
 
-    expect(config.providers).toHaveLength(4);
+    expect(config.providers).toHaveLength(5);
     expect(config.activeProviderId).toBe('openrouter-custom');
     expect(config.openaiApiKey).toBe('second-key');
   });

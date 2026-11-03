@@ -2,7 +2,7 @@
 
 一个将 YouTube 英文字幕翻译为所选目标语言的 Chrome 扩展。在播放器中直接看双语字幕，支持全文对照与 SRT 文件导出。
 
-配置任意 OpenAI-compatible API（如 OpenAI、DeepSeek、OpenRouter）即可使用。
+配置任意 OpenAI-compatible API（如 OpenAI、DeepSeek、OpenRouter、OpenCode Go）即可使用。
 
 ## 本地安装
 
